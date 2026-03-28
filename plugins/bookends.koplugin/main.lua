@@ -29,7 +29,10 @@ function Bookends:init()
     self.ui.menu:registerToMainMenu(self)
     self.ui.view:registerViewModule("bookends", self)
     self.session_start_time = os.time()
-    self.session_pages_turned = 0
+    -- Session tracking: use flow-aware page for stable page number support
+    local start_page = self:getFlowAwarePage()
+    self.session_start_page = start_page
+    self.session_max_page = start_page
     self.dirty = true
     self.position_cache = {}
 
@@ -169,9 +172,26 @@ function Bookends:resolveLineConfig(face_name, font_size, style)
     }
 end
 
+function Bookends:getFlowAwarePage()
+    local pageno = self.ui.view.state.page
+    if not pageno then return 0 end
+    local doc = self.ui.document
+    if self.ui.pagemap and self.ui.pagemap:wantsPageLabels() then
+        -- Stable page numbers: labels may be non-numeric, fall back to raw
+        local label = self.ui.pagemap:getCurrentPageLabel(true)
+        return tonumber(label) or pageno
+    elseif doc:hasHiddenFlows() then
+        return doc:getPageNumberInFlow(pageno)
+    end
+    return pageno
+end
+
 -- Event handlers
 function Bookends:onPageUpdate()
-    self.session_pages_turned = (self.session_pages_turned or 0) + 1
+    local current = self:getFlowAwarePage()
+    if current > (self.session_max_page or 0) then
+        self.session_max_page = current
+    end
     self:markDirty()
 end
 function Bookends:onPosUpdate() self:markDirty() end
@@ -193,7 +213,7 @@ function Bookends:paintTo(bb, x, y)
         if self:isPositionActive(pos.key) then
             local lines = self.positions[pos.key].lines
             local joined = table.concat(lines, "\n")
-            expanded[pos.key] = Tokens.expand(joined, self.ui, self.session_start_time, self.session_pages_turned)
+            expanded[pos.key] = Tokens.expand(joined, self.ui, self.session_start_time, (self.session_max_page or 0) - (self.session_start_page or 0))
         end
     end
 
@@ -354,7 +374,7 @@ function Bookends:buildMainMenu()
                     return pos.label
                 else
                     -- Expand tokens for preview
-                    local preview = Tokens.expand(lines[1], self.ui, self.session_start_time, self.session_pages_turned)
+                    local preview = Tokens.expand(lines[1], self.ui, self.session_start_time, (self.session_max_page or 0) - (self.session_start_page or 0))
                     if #lines > 1 then
                         preview = preview .. " ..."
                     end
@@ -468,7 +488,7 @@ function Bookends:buildPositionMenu(pos)
     for i, line in ipairs(lines) do
         table.insert(menu, {
             text_func = function()
-                local preview = Tokens.expand(self.positions[pos.key].lines[i] or "", self.ui, self.session_start_time, self.session_pages_turned)
+                local preview = Tokens.expand(self.positions[pos.key].lines[i] or "", self.ui, self.session_start_time, (self.session_max_page or 0) - (self.session_start_page or 0))
                 if #preview > 45 then
                     preview = preview:sub(1, 42) .. "..."
                 end
