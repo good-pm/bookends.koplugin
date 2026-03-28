@@ -30,7 +30,7 @@ function FooterText:loadSettings()
     self.enabled = G_reader_settings:readSetting("footertext_enabled", true)
     self.format = G_reader_settings:readSetting("footertext_format", "Page %c")
     self.font_size = G_reader_settings:readSetting("footertext_font_size", footer_settings.text_font_size)
-    self.font_face_name = G_reader_settings:readSetting("footertext_font_face", "ffont")
+    self.font_face_name = G_reader_settings:readSetting("footertext_font_face", Font.fontmap["ffont"])
     self.font_bold = footer_settings.text_font_bold or false
     self.vertical_offset = G_reader_settings:readSetting("footertext_vertical_offset", 35)
 end
@@ -263,24 +263,29 @@ function FooterText:addToMainMenu(menu_items)
 end
 
 function FooterText:buildFontMenu()
-    local font_choices = {
-        { text = "NotoSans Regular", face = "ffont" },
-        { text = "NotoSans Bold", face = "tfont" },
-        { text = "DroidSans Mono", face = "infont" },
-    }
+    local cre = require("document/credocument"):engineInit()
+    local FontList = require("fontlist")
+    local face_list = cre.getFontFaces()
     local menu = {}
-    for _, choice in ipairs(font_choices) do
-        table.insert(menu, {
-            text = choice.text,
-            checked_func = function()
-                return self.font_face_name == choice.face
-            end,
-            callback = function()
-                self.font_face_name = choice.face
-                G_reader_settings:saveSetting("footertext_font_face", choice.face)
-                self:rebuildWidget()
-            end,
-        })
+    for _, face_name in ipairs(face_list) do
+        local font_filename, font_faceindex = cre.getFontFaceFilenameAndFaceIndex(face_name)
+        if not font_filename then
+            font_filename, font_faceindex = cre.getFontFaceFilenameAndFaceIndex(face_name, nil, true)
+        end
+        if font_filename then
+            local display_name = FontList:getLocalizedFontName(font_filename, font_faceindex) or face_name
+            table.insert(menu, {
+                text = display_name,
+                checked_func = function()
+                    return self.font_face_name == font_filename
+                end,
+                callback = function()
+                    self.font_face_name = font_filename
+                    G_reader_settings:saveSetting("footertext_font_face", font_filename)
+                    self:rebuildWidget()
+                end,
+            })
+        end
     end
     return menu
 end
