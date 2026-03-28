@@ -7,6 +7,9 @@ local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local datetime = require("datetime")
+local InfoMessage = require("ui/widget/infomessage")
+local InputDialog = require("ui/widget/inputdialog")
+local SpinWidget = require("ui/widget/spinwidget")
 local _ = require("gettext")
 local Screen = Device.screen
 
@@ -147,6 +150,14 @@ function FooterText:buildWidget()
     }
 end
 
+function FooterText:rebuildWidget()
+    if self.text_widget then
+        self.text_widget:free()
+    end
+    self:buildWidget()
+    UIManager:setDirty(self.ui, "ui")
+end
+
 function FooterText:updatePosition()
     local screen_size = Screen:getSize()
     local footer_height = 0
@@ -196,7 +207,136 @@ function FooterText:onCloseWidget()
 end
 
 function FooterText:addToMainMenu(menu_items)
-    -- placeholder, implemented in Task 4
+    menu_items.footer_text = {
+        text = _("Footer text"),
+        sub_item_table = {
+            {
+                text = _("Enable footer text"),
+                checked_func = function()
+                    return self.enabled
+                end,
+                callback = function()
+                    self.enabled = not self.enabled
+                    G_reader_settings:saveSetting("footertext_enabled", self.enabled)
+                    UIManager:setDirty(self.ui, "ui")
+                end,
+            },
+            {
+                text = _("Edit format string"),
+                keep_menu_open = true,
+                enabled_func = function()
+                    return self.enabled
+                end,
+                callback = function()
+                    self:editFormatString()
+                end,
+            },
+            {
+                text = _("Font size"),
+                keep_menu_open = true,
+                enabled_func = function()
+                    return self.enabled
+                end,
+                callback = function()
+                    self:editFontSize()
+                end,
+            },
+            {
+                text = _("Vertical offset"),
+                keep_menu_open = true,
+                enabled_func = function()
+                    return self.enabled
+                end,
+                callback = function()
+                    self:editVerticalOffset()
+                end,
+            },
+        },
+    }
+end
+
+function FooterText:editFormatString()
+    local format_dialog
+    format_dialog = InputDialog:new{
+        title = _("Footer text format string"),
+        input = self.format,
+        buttons = {
+            {
+                {
+                    text = _("Cancel"),
+                    id = "close",
+                    callback = function()
+                        UIManager:close(format_dialog)
+                    end,
+                },
+                {
+                    text = _("Info"),
+                    callback = function()
+                        UIManager:show(InfoMessage:new{
+                            text = _([[
+Available tokens:
+%T  title
+%A  author(s)
+%S  series
+%c  current page number
+%t  total page number
+%p  percentage read
+%h  time left in chapter
+%H  time left in document
+%b  battery level
+%B  battery symbol]]),
+                        })
+                    end,
+                },
+                {
+                    text = _("Save"),
+                    is_enter_default = true,
+                    callback = function()
+                        self.format = format_dialog:getInputText()
+                        G_reader_settings:saveSetting("footertext_format", self.format)
+                        UIManager:close(format_dialog)
+                        UIManager:setDirty(self.ui, "ui")
+                    end,
+                },
+            },
+        },
+    }
+    UIManager:show(format_dialog)
+    format_dialog:onShowKeyboard()
+end
+
+function FooterText:editFontSize()
+    local spin = SpinWidget:new{
+        value = self.font_size,
+        value_min = 8,
+        value_max = 36,
+        default_value = self.ui.view.footer.settings.text_font_size,
+        title_text = _("Footer text font size"),
+        ok_text = _("Set"),
+        callback = function(spin)
+            self.font_size = spin.value
+            G_reader_settings:saveSetting("footertext_font_size", self.font_size)
+            self:rebuildWidget()
+        end,
+    }
+    UIManager:show(spin)
+end
+
+function FooterText:editVerticalOffset()
+    local spin = SpinWidget:new{
+        value = self.vertical_offset,
+        value_min = -100,
+        value_max = 100,
+        default_value = 0,
+        title_text = _("Vertical offset (pixels up)"),
+        ok_text = _("Set"),
+        callback = function(spin)
+            self.vertical_offset = spin.value
+            G_reader_settings:saveSetting("footertext_vertical_offset", self.vertical_offset)
+            UIManager:setDirty(self.ui, "ui")
+        end,
+    }
+    UIManager:show(spin)
 end
 
 return FooterText
