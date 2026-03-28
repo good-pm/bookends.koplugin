@@ -32,7 +32,7 @@ function FooterText:loadSettings()
     self.font_size = G_reader_settings:readSetting("footertext_font_size", footer_settings.text_font_size)
     self.font_face_name = "ffont"
     self.font_bold = footer_settings.text_font_bold or false
-    self.vertical_offset = G_reader_settings:readSetting("footertext_vertical_offset", 0)
+    self.vertical_offset = G_reader_settings:readSetting("footertext_vertical_offset", 35)
 end
 
 function FooterText:expandTokens(format_str)
@@ -179,6 +179,12 @@ function FooterText:onPosUpdate(pos)
 end
 
 
+function FooterText:onReaderFooterVisibilityChange()
+    if self.enabled then
+        UIManager:setDirty(self.ui, "ui")
+    end
+end
+
 function FooterText:onSetDimensions(dimen)
     if self.enabled then
         UIManager:setDirty(self.ui, "ui")
@@ -320,7 +326,7 @@ function FooterText:editVerticalOffset()
         value = self.vertical_offset,
         value_min = -100,
         value_max = 100,
-        default_value = 0,
+        default_value = 35,
         title_text = _("Vertical offset (pixels up)"),
         ok_text = _("Set"),
         callback = function(spin)
