@@ -1,4 +1,4 @@
-# customoverlay.koplugin - Design Spec
+# bookends.koplugin - Design Spec
 
 ## Summary
 
@@ -8,8 +8,8 @@ Supersedes the `footertext.koplugin` prototype.
 
 ## Plugin Identity
 
-- **Name:** `customoverlay`
-- **Directory:** `plugins/customoverlay.koplugin/`
+- **Name:** `bookends`
+- **Directory:** `plugins/bookends.koplugin/`
 - **Type:** `is_doc_only = true` (reader context only)
 - **Files:**
   - `_meta.lua` - plugin metadata
@@ -47,21 +47,21 @@ Six positions, each identified by a key:
 
 ### Global Defaults
 
-All persisted via `G_reader_settings` with prefix `customoverlay_`.
+All persisted via `G_reader_settings` with prefix `bookends_`.
 
 | Setting | Key | Type | Default |
 |---------|-----|------|---------|
-| Master enable | `customoverlay_enabled` | boolean | `false` |
-| Font face | `customoverlay_font_face` | string | status bar font |
-| Font size | `customoverlay_font_size` | integer | status bar font size |
-| Bold | `customoverlay_font_bold` | boolean | `false` |
-| Vertical offset | `customoverlay_v_offset` | integer | `35` |
-| Horizontal offset | `customoverlay_h_offset` | integer | `10` |
-| Overlap gap | `customoverlay_overlap_gap` | integer | `10` |
+| Master enable | `bookends_enabled` | boolean | `false` |
+| Font face | `bookends_font_face` | string | status bar font |
+| Font size | `bookends_font_size` | integer | status bar font size |
+| Bold | `bookends_font_bold` | boolean | `false` |
+| Vertical offset | `bookends_v_offset` | integer | `35` |
+| Horizontal offset | `bookends_h_offset` | integer | `10` |
+| Overlap gap | `bookends_overlap_gap` | integer | `10` |
 
 ### Per-Position Settings
 
-Each position stores settings under `customoverlay_pos_{key}` (e.g., `customoverlay_pos_tl`). The value is a table:
+Each position stores settings under `bookends_pos_{key}` (e.g., `bookends_pos_tl`). The value is a table:
 
 ```lua
 {
@@ -242,8 +242,8 @@ Uses KOReader's `Menu` widget (the standard scrollable list) with a custom item 
 Registered in the reader menu under Settings:
 
 ```
-Custom overlay
-├── Enable custom overlay          [checkbox]
+Bookends
+├── Enable bookends          [checkbox]
 ├── Position: Top-left             [submenu]
 │   ├── Edit format string         [InputDialog + icon picker]
 │   ├── Override font              [submenu, optional]
@@ -289,7 +289,7 @@ Token expansion is only performed at paint time. A simple dirty flag avoids redu
 Same approach as the footer text prototype:
 
 ```lua
-self.ui.view:registerViewModule("customoverlay", self)
+self.ui.view:registerViewModule("bookends", self)
 ```
 
 View modules paint after the footer, so overlays layer on top.
@@ -297,7 +297,7 @@ View modules paint after the footer, so overlays layer on top.
 ## File Layout
 
 ```
-plugins/customoverlay.koplugin/
+plugins/bookends.koplugin/
 ├── _meta.lua          -- plugin metadata (~10 lines)
 ├── main.lua           -- CustomOverlay class, settings, events, menu (~400 lines)
 ├── overlay_widget.lua -- widget building, positioning, overlap logic (~250 lines)
