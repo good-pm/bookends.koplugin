@@ -79,14 +79,14 @@ function Tokens.expand(format_str, ui, session_start_time)
         end
         if ch_left then
             local result = ui.statistics:getTimeForPages(ch_left)
-            if result and result ~= _("N/A") then
+            if result and result ~= "N/A" then
                 time_left_chapter = result
             end
         end
         local doc_left = doc:getTotalPagesLeft(pageno)
         if doc_left then
             local result = ui.statistics:getTimeForPages(doc_left)
-            if result and result ~= _("N/A") then
+            if result and result ~= "N/A" then
                 time_left_doc = result
             end
         end
