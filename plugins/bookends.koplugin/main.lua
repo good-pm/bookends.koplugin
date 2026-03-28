@@ -7,7 +7,6 @@ local Screen = Device.screen
 local Tokens = require("tokens")
 local OverlayWidget = require("overlay_widget")
 local InputDialog = require("ui/widget/inputdialog")
-local InfoMessage = require("ui/widget/infomessage")
 local SpinWidget = require("ui/widget/spinwidget")
 
 local Bookends = WidgetContainer:extend{
@@ -31,14 +30,13 @@ function Bookends:init()
     self.ui.view:registerViewModule("bookends", self)
     self.session_start_time = os.time()
     self.dirty = true
-    self.position_cache = {} -- cached expanded text per position key
+    self.position_cache = {}
 end
 
 function Bookends:loadSettings()
     local footer_settings = self.ui.view.footer.settings
     self.enabled = G_reader_settings:readSetting("bookends_enabled", false)
 
-    -- Global defaults
     self.defaults = {
         font_face = G_reader_settings:readSetting("bookends_font_face", Font.fontmap["ffont"]),
         font_size = G_reader_settings:readSetting("bookends_font_size", footer_settings.text_font_size),
@@ -48,12 +46,20 @@ function Bookends:loadSettings()
         overlap_gap = G_reader_settings:readSetting("bookends_overlap_gap", 10),
     }
 
-    -- Per-position settings (table with format, font_face, font_size, etc.)
+    -- Per-position settings
+    -- Migrate old single-format to lines array
     self.positions = {}
     for _, pos in ipairs(self.POSITIONS) do
-        self.positions[pos.key] = G_reader_settings:readSetting("bookends_pos_" .. pos.key, {
-            format = "",
-        })
+        local saved = G_reader_settings:readSetting("bookends_pos_" .. pos.key, {})
+        -- Migration: old format string → lines array
+        if saved.format and saved.format ~= "" and not saved.lines then
+            saved.lines = { saved.format }
+            saved.format = nil
+        end
+        if not saved.lines then
+            saved.lines = {}
+        end
+        self.positions[pos.key] = saved
     end
 end
 
@@ -70,7 +76,7 @@ function Bookends:getPositionSetting(key, field)
 end
 
 function Bookends:isPositionActive(key)
-    return self.enabled and self.positions[key].format ~= ""
+    return self.enabled and #self.positions[key].lines > 0
 end
 
 function Bookends:markDirty()
@@ -93,13 +99,13 @@ function Bookends:paintTo(bb, x, y)
     local screen_h = screen_size.h
 
     -- Phase 1: Expand tokens for all active positions
-    local expanded = {} -- key -> expanded text string
+    -- Join lines with \n, then expand tokens
+    local expanded = {}
     for _, pos in ipairs(self.POSITIONS) do
         if self:isPositionActive(pos.key) then
-            local fmt = self.positions[pos.key].format
-            -- Convert literal backslash-n to real newline for line splitting
-            fmt = fmt:gsub("\\n", "\n")
-            expanded[pos.key] = Tokens.expand(fmt, self.ui, self.session_start_time)
+            local lines = self.positions[pos.key].lines
+            local joined = table.concat(lines, "\n")
+            expanded[pos.key] = Tokens.expand(joined, self.ui, self.session_start_time)
         end
     end
 
@@ -112,7 +118,6 @@ function Bookends:paintTo(bb, x, y)
                 break
             end
         end
-        -- Also detect positions that became inactive since last frame
         if not changed then
             for key in pairs(self.position_cache) do
                 if not expanded[key] then
@@ -122,7 +127,6 @@ function Bookends:paintTo(bb, x, y)
             end
         end
         if not changed then
-            -- Repaint existing widgets at their cached positions
             for _, pos in ipairs(self.POSITIONS) do
                 local entry = self.widget_cache and self.widget_cache[pos.key]
                 if entry then
@@ -133,8 +137,8 @@ function Bookends:paintTo(bb, x, y)
         end
     end
 
-    -- Phase 2: Measure all active positions (no truncation yet)
-    local measurements = {} -- key -> { width, face, bold }
+    -- Phase 2: Measure all active positions
+    local measurements = {}
     for key, text in pairs(expanded) do
         local face = Font:getFace(
             self:getPositionSetting(key, "font_face"),
@@ -147,7 +151,6 @@ function Bookends:paintTo(bb, x, y)
     -- Phase 3: Calculate overlap limits per row
     local gap = self.defaults.overlap_gap
 
-    -- Free old widgets
     if self.widget_cache then
         OverlayWidget.freeWidgets(self.widget_cache)
     end
@@ -164,13 +167,12 @@ function Bookends:paintTo(bb, x, y)
 
         local left_h_offset = self:getPositionSetting(left_key, "h_offset")
         local right_h_offset = self:getPositionSetting(right_key, "h_offset")
-        -- Use the larger h_offset for overlap calc to be safe
         local max_h_offset = math.max(left_h_offset or 0, right_h_offset or 0)
 
         local limits = OverlayWidget.calculateRowLimits(
             left_w, center_w, right_w, screen_w, gap, max_h_offset)
 
-        -- Phase 4: Build widgets with truncation limits applied
+        -- Phase 4: Build widgets with truncation limits
         local row_keys = {
             { key = left_key, limit_key = "left" },
             { key = center_key, limit_key = "center" },
@@ -180,12 +182,12 @@ function Bookends:paintTo(bb, x, y)
             local key = rk.key
             if expanded[key] then
                 local m = measurements[key]
-                local pos_def = nil
+                local pos_def
                 for _, p in ipairs(self.POSITIONS) do
                     if p.key == key then pos_def = p; break end
                 end
 
-                local max_width = limits[rk.limit_key] -- nil if no truncation needed
+                local max_width = limits[rk.limit_key]
                 local widget, w, h = OverlayWidget.buildTextWidget(
                     expanded[key], m.face, m.bold, pos_def.h_anchor, max_width)
 
@@ -203,7 +205,6 @@ function Bookends:paintTo(bb, x, y)
         end
     end
 
-    -- Update cache
     self.position_cache = {}
     for key, text in pairs(expanded) do
         self.position_cache[key] = text
@@ -217,6 +218,8 @@ function Bookends:onCloseWidget()
         self.widget_cache = nil
     end
 end
+
+-- ─── Menu ────────────────────────────────────────────────
 
 function Bookends:addToMainMenu(menu_items)
     menu_items.bookends = {
@@ -245,14 +248,15 @@ function Bookends:buildMainMenu()
     for _, pos in ipairs(self.POSITIONS) do
         table.insert(menu, {
             text_func = function()
-                local fmt = self.positions[pos.key].format
-                if fmt == "" then
+                local lines = self.positions[pos.key].lines
+                if #lines == 0 then
                     return pos.label
                 else
-                    -- Expand tokens for preview, truncate to keep menu readable
-                    local Tokens = require("tokens")
-                    local preview = fmt:gsub("\\n", " ")
-                    preview = Tokens.expand(preview, self.ui, self.session_start_time)
+                    -- Expand tokens for preview
+                    local preview = Tokens.expand(lines[1], self.ui, self.session_start_time)
+                    if #lines > 1 then
+                        preview = preview .. " ..."
+                    end
                     if #preview > 40 then
                         preview = preview:sub(1, 37) .. "..."
                     end
@@ -268,7 +272,7 @@ function Bookends:buildMainMenu()
 
     -- Separator
     table.insert(menu, {
-        text = "──────────",
+        text = "\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80",
         enabled_func = function() return false end,
     })
 
@@ -342,82 +346,132 @@ end
 
 function Bookends:buildPositionMenu(pos)
     local is_corner = pos.h_anchor ~= "center"
-    local menu = {
-        {
-            text = _("Edit format string"),
-            keep_menu_open = true,
-            callback = function()
-                self:editFormatString(pos.key)
-            end,
-        },
-        {
-            text_func = function()
-                if self.positions[pos.key].font_face then
-                    return _("Override font (active)")
-                end
-                return _("Override font")
-            end,
-            sub_item_table_func = function()
-                local items = self:buildFontMenu(
-                    function() return self:getPositionSetting(pos.key, "font_face") end,
-                    function(face)
-                        self.positions[pos.key].font_face = face
-                        self:savePositionSetting(pos.key)
-                        self:markDirty()
-                    end)
-                -- Add "Reset to default" at the top
-                table.insert(items, 1, {
-                    text = _("Reset to default"),
-                    callback = function()
-                        self.positions[pos.key].font_face = nil
-                        self:savePositionSetting(pos.key)
-                        self:markDirty()
-                    end,
-                })
-                return items
-            end,
-        },
-        {
-            text_func = function()
-                if self.positions[pos.key].font_size then
-                    return _("Override font size") .. " (" .. self.positions[pos.key].font_size .. ")"
-                end
-                return _("Override font size")
-            end,
-            keep_menu_open = true,
-            callback = function()
-                self:showSpinner(_("Font size for " .. pos.label),
-                    self:getPositionSetting(pos.key, "font_size"), 8, 36,
-                    self.defaults.font_size,
-                    function(val)
-                        self.positions[pos.key].font_size = val
-                        self:savePositionSetting(pos.key)
-                        self:markDirty()
-                    end)
-            end,
-        },
-        {
-            text_func = function()
-                if self.positions[pos.key].v_offset then
-                    return _("Override vertical offset") .. " (" .. self.positions[pos.key].v_offset .. ")"
-                end
-                return _("Override vertical offset")
-            end,
-            keep_menu_open = true,
-            callback = function()
-                self:showSpinner(_("Vertical offset for " .. pos.label),
-                    self:getPositionSetting(pos.key, "v_offset"), 0, 200,
-                    self.defaults.v_offset,
-                    function(val)
-                        self.positions[pos.key].v_offset = val
-                        self:savePositionSetting(pos.key)
-                        self:markDirty()
-                    end)
-            end,
-        },
-    }
+    local menu = {}
+    local lines = self.positions[pos.key].lines
 
-    -- Horizontal offset only for corners
+    -- Line entries
+    for i, line in ipairs(lines) do
+        table.insert(menu, {
+            text_func = function()
+                local preview = Tokens.expand(self.positions[pos.key].lines[i] or "", self.ui, self.session_start_time)
+                if #preview > 45 then
+                    preview = preview:sub(1, 42) .. "..."
+                end
+                return _("Line") .. " " .. i .. ": " .. preview
+            end,
+            keep_menu_open = true,
+            callback = function()
+                self:editLineString(pos, i)
+            end,
+            hold_callback = function()
+                -- Long-press to remove line
+                table.remove(self.positions[pos.key].lines, i)
+                self:savePositionSetting(pos.key)
+                self:markDirty()
+            end,
+        })
+    end
+
+    -- Add line
+    table.insert(menu, {
+        text = _("Add line"),
+        keep_menu_open = true,
+        callback = function()
+            local idx = #self.positions[pos.key].lines + 1
+            table.insert(self.positions[pos.key].lines, "")
+            self:savePositionSetting(pos.key)
+            self:editLineString(pos, idx)
+        end,
+    })
+
+    -- Separator
+    table.insert(menu, {
+        text = "\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80",
+        enabled_func = function() return false end,
+    })
+
+    -- Per-position overrides
+    table.insert(menu, {
+        text_func = function()
+            if self.positions[pos.key].font_face then
+                return _("Override font (active)")
+            end
+            return _("Override font")
+        end,
+        sub_item_table_func = function()
+            local items = self:buildFontMenu(
+                function() return self:getPositionSetting(pos.key, "font_face") end,
+                function(face)
+                    self.positions[pos.key].font_face = face
+                    self:savePositionSetting(pos.key)
+                    self:markDirty()
+                end)
+            table.insert(items, 1, {
+                text = _("Reset to default"),
+                callback = function()
+                    self.positions[pos.key].font_face = nil
+                    self:savePositionSetting(pos.key)
+                    self:markDirty()
+                end,
+            })
+            return items
+        end,
+    })
+    table.insert(menu, {
+        text_func = function()
+            if self.positions[pos.key].font_size then
+                return _("Override font size") .. " (" .. self.positions[pos.key].font_size .. ")"
+            end
+            return _("Override font size")
+        end,
+        keep_menu_open = true,
+        callback = function()
+            self:showSpinner(_("Font size for " .. pos.label),
+                self:getPositionSetting(pos.key, "font_size"), 8, 36,
+                self.defaults.font_size,
+                function(val)
+                    self.positions[pos.key].font_size = val
+                    self:savePositionSetting(pos.key)
+                    self:markDirty()
+                end)
+        end,
+    })
+    table.insert(menu, {
+        text_func = function()
+            local bold = self:getPositionSetting(pos.key, "font_bold")
+            if bold then
+                return _("Style: Bold")
+            end
+            return _("Style: Regular")
+        end,
+        keep_menu_open = true,
+        callback = function()
+            local current = self:getPositionSetting(pos.key, "font_bold")
+            self.positions[pos.key].font_bold = not current
+            self:savePositionSetting(pos.key)
+            self:markDirty()
+        end,
+    })
+    table.insert(menu, {
+        text_func = function()
+            if self.positions[pos.key].v_offset then
+                return _("Override vertical offset") .. " (" .. self.positions[pos.key].v_offset .. ")"
+            end
+            return _("Override vertical offset")
+        end,
+        keep_menu_open = true,
+        callback = function()
+            self:showSpinner(_("Vertical offset for " .. pos.label),
+                self:getPositionSetting(pos.key, "v_offset"), 0, 200,
+                self.defaults.v_offset,
+                function(val)
+                    self.positions[pos.key].v_offset = val
+                    self:savePositionSetting(pos.key)
+                    self:markDirty()
+                end)
+        end,
+    })
+
     if is_corner then
         table.insert(menu, {
             text_func = function()
@@ -440,12 +494,11 @@ function Bookends:buildPositionMenu(pos)
         })
     end
 
-    -- Reset all overrides
     table.insert(menu, {
         text = _("Reset all overrides"),
         callback = function()
-            local fmt = self.positions[pos.key].format
-            self.positions[pos.key] = { format = fmt }
+            local lines_copy = self.positions[pos.key].lines
+            self.positions[pos.key] = { lines = lines_copy }
             self:savePositionSetting(pos.key)
             self:markDirty()
         end,
@@ -454,51 +507,28 @@ function Bookends:buildPositionMenu(pos)
     return menu
 end
 
-function Bookends:editFormatString(pos_key)
+-- ─── Line editing ────────────────────────────────────────
+
+function Bookends:editLineString(pos, line_idx)
     local IconPicker = require("icon_picker")
 
-    -- Find the position label for this key
-    local pos_label = pos_key
-    for _, pos in ipairs(self.POSITIONS) do
-        if pos.key == pos_key then
-            pos_label = pos.label
-            break
-        end
-    end
-
-    -- Current bold state for this position
-    local current_bold = self:getPositionSetting(pos_key, "font_bold")
+    local current_text = self.positions[pos.key].lines[line_idx] or ""
 
     local format_dialog
     format_dialog = InputDialog:new{
-        title = pos_label .. " " .. _("format string"),
-        input = self.positions[pos_key].format,
+        title = pos.label .. " — " .. _("Line") .. " " .. line_idx,
+        input = current_text,
         buttons = {
-            -- Row 1: Style toggle and line break
-            {
-                {
-                    text_func = function()
-                        return current_bold and _("Style: Bold") or _("Style: Regular")
-                    end,
-                    callback = function()
-                        current_bold = not current_bold
-                        -- Update button text
-                        format_dialog:refreshButtons()
-                    end,
-                },
-                {
-                    text = _("Line break"),
-                    callback = function()
-                        format_dialog:addTextToInput("\n")
-                    end,
-                },
-            },
-            -- Row 2: Main actions
             {
                 {
                     text = _("Cancel"),
                     id = "close",
                     callback = function()
+                        -- If line is empty and was just added, remove it
+                        if current_text == "" and (self.positions[pos.key].lines[line_idx] or "") == "" then
+                            table.remove(self.positions[pos.key].lines, line_idx)
+                            self:savePositionSetting(pos.key)
+                        end
                         UIManager:close(format_dialog)
                     end,
                 },
@@ -524,9 +554,13 @@ function Bookends:editFormatString(pos_key)
                     text = _("Save"),
                     is_enter_default = true,
                     callback = function()
-                        self.positions[pos_key].format = format_dialog:getInputText()
-                        self.positions[pos_key].font_bold = current_bold or nil
-                        self:savePositionSetting(pos_key)
+                        local new_text = format_dialog:getInputText()
+                        if new_text == "" then
+                            table.remove(self.positions[pos.key].lines, line_idx)
+                        else
+                            self.positions[pos.key].lines[line_idx] = new_text
+                        end
+                        self:savePositionSetting(pos.key)
                         UIManager:close(format_dialog)
                         self:markDirty()
                     end,
@@ -538,7 +572,8 @@ function Bookends:editFormatString(pos_key)
     format_dialog:onShowKeyboard()
 end
 
--- Token reference as a scrollable picker (same UX as icon picker)
+-- ─── Token picker ────────────────────────────────────────
+
 Bookends.TOKEN_CATALOG = {
     { _("Page / Progress"), {
         { "%c", _("Current page number") },
@@ -608,6 +643,8 @@ function Bookends:showTokenPicker(on_select)
     }
     UIManager:show(menu)
 end
+
+-- ─── Helpers ─────────────────────────────────────────────
 
 function Bookends:buildFontMenu(get_current, on_select)
     local cre = require("document/credocument"):engineInit()

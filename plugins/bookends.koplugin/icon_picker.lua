@@ -4,24 +4,29 @@ local _ = require("gettext")
 
 local IconPicker = {}
 
--- Icon catalog: { category_label, { {glyph_or_token, description, is_token}, ... } }
--- is_token: if true, inserts a %token instead of a literal glyph
+-- Icon catalog: { category_label, { {display, description, insert_value}, ... } }
+-- insert_value is what gets inserted; display is what's shown in the picker
 IconPicker.CATALOG = {
     { _("Dynamic"), {
-        { "%B", _("Battery (dynamic level)"), true },
-        { "%W", _("Wi-Fi (dynamic on/off)"), true },
-        { "%m", _("Memory usage %"), true },
+        { "\xEE\x9E\x90", _("Battery (changes with level)"), "%B" },     -- U+E790 battery icon
+        { "\xEE\xB2\xA8", _("Wi-Fi (changes with status)"), "%W" },      -- U+ECA8 wifi icon
     }},
     { _("Status"), {
-        { "\xEF\x82\x97", _("Bookmark") },       -- U+F097
-        { "\xEE\xA9\x9A", _("Memory chip") },     -- U+EA5A
+        { "\xEF\x82\x97", _("Bookmark") },            -- U+F097
+        { "\xEE\xA9\x9A", _("Memory chip") },         -- U+EA5A
     }},
     { _("Time"), {
-        { "\xE2\x8C\x9A", _("Watch") },           -- U+231A
-        { "\xE2\x8F\xB3", _("Hourglass") },       -- U+23F3
+        { "\xE2\x8C\x9A", _("Watch") },               -- U+231A
+        { "\xE2\x8F\xB3", _("Hourglass") },           -- U+23F3
     }},
     { _("Symbols"), {
-        { "\xE2\x98\xBC", _("Sun / brightness") }, -- U+263C
+        { "\xE2\x98\xBC", _("Sun / brightness") },    -- U+263C
+        { "\xE2\x99\xA0", _("Spade") },               -- U+2660
+        { "\xE2\x99\xA3", _("Club") },                -- U+2663
+        { "\xE2\x99\xA5", _("Heart") },               -- U+2665
+        { "\xE2\x99\xA6", _("Diamond suit") },        -- U+2666
+        { "\xE2\x98\x85", _("Star (filled)") },       -- U+2605
+        { "\xE2\x98\x86", _("Star (outline)") },      -- U+2606
     }},
     { _("Arrows"), {
         { "\xE2\x86\x90", _("Arrow left") },            -- U+2190
@@ -38,8 +43,8 @@ IconPicker.CATALOG = {
         { "\xE2\x97\x80", _("Triangle left") },         -- U+25C0
         { "\xE2\x96\xB2", _("Triangle up") },           -- U+25B2
         { "\xE2\x96\xBC", _("Triangle down") },         -- U+25BC
-        { "\xC2\xBB",     _("Double angle right") },    -- U+00BB >>
-        { "\xC2\xAB",     _("Double angle left") },     -- U+00AB <<
+        { "\xC2\xBB",     _("Double angle right") },    -- U+00BB
+        { "\xC2\xAB",     _("Double angle left") },     -- U+00AB
     }},
     { _("Separators"), {
         { "|",             _("Vertical bar") },          -- U+007C
@@ -65,18 +70,12 @@ function IconPicker:buildItemTable()
             callback = function() end,
         })
         for _, icon_entry in ipairs(icons) do
-            local value = icon_entry[1]
+            local display = icon_entry[1]
             local desc = icon_entry[2]
-            local is_token = icon_entry[3]
-            local display
-            if is_token then
-                display = value .. "  " .. desc
-            else
-                display = value .. "   " .. desc
-            end
+            local insert_value = icon_entry[3] or display -- default: insert the glyph itself
             table.insert(items, {
-                text = display,
-                insert_value = value,
+                text = display .. "   " .. desc,
+                insert_value = insert_value,
             })
         end
     end
@@ -84,7 +83,6 @@ function IconPicker:buildItemTable()
 end
 
 --- Show the icon picker. When user selects an icon, on_select(value) is called.
--- @param on_select function(string) — receives glyph or token to insert
 function IconPicker:show(on_select)
     local item_table = self:buildItemTable()
     local Device = require("device")

@@ -104,13 +104,15 @@ function Tokens.expand(format_str, ui, session_start_time)
         session_time = datetime.secondsToClockDuration(user_duration_format, elapsed, true)
     end
 
-    -- Document metadata
+    -- Document metadata — use ui.doc_props (enriched) with doc:getProps() as fallback
+    local doc_props = ui.doc_props or {}
     local props = doc:getProps()
-    local title = props.display_title or ""
-    local authors = props.authors or ""
-    local series = props.series or ""
-    if series ~= "" and props.series_index then
-        series = series .. " #" .. props.series_index
+    local title = doc_props.display_title or props.title or ""
+    local authors = doc_props.authors or props.authors or ""
+    local series = doc_props.series or props.series or ""
+    local series_index = doc_props.series_index or props.series_index
+    if series ~= "" and series_index then
+        series = series .. " #" .. series_index
     end
 
     -- Battery
