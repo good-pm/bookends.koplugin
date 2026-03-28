@@ -3,7 +3,7 @@ local datetime = require("datetime")
 
 local Tokens = {}
 
-function Tokens.expand(format_str, ui, session_start_time)
+function Tokens.expand(format_str, ui, session_start_time, session_start_page)
     -- Fast path: no tokens
     if not format_str:find("%%") then
         return format_str
@@ -42,12 +42,14 @@ function Tokens.expand(format_str, ui, session_start_time)
     local chapter_pct = ""
     local chapter_pages_done = ""
     local chapter_pages_left = ""
+    local chapter_total_pages = ""
     local chapter_title = ""
     if pageno and ui.toc then
         local done = ui.toc:getChapterPagesDone(pageno)
         local total = ui.toc:getChapterPageCount(pageno)
         if done and total and total > 0 then
             chapter_pages_done = done + 1 -- +1 to include current page
+            chapter_total_pages = total
             chapter_pct = math.floor(chapter_pages_done / total * 100)
         end
         local left = ui.toc:getChapterPagesLeft(pageno)
@@ -57,6 +59,17 @@ function Tokens.expand(format_str, ui, session_start_time)
         local title = ui.toc:getTocTitleByPage(pageno)
         if title and title ~= "" then
             chapter_title = title
+        end
+    end
+
+    -- Session pages read
+    local session_pages = ""
+    if pageno and session_start_page then
+        local read = pageno - session_start_page
+        if read > 0 then
+            session_pages = read
+        else
+            session_pages = 0
         end
     end
 
@@ -160,6 +173,7 @@ function Tokens.expand(format_str, ui, session_start_time)
         ["%p"] = tostring(percent),
         ["%P"] = tostring(chapter_pct),
         ["%g"] = tostring(chapter_pages_done),
+        ["%G"] = tostring(chapter_total_pages),
         ["%l"] = tostring(chapter_pages_left),
         ["%L"] = tostring(pages_left_book),
         -- Time/Reading
@@ -168,6 +182,7 @@ function Tokens.expand(format_str, ui, session_start_time)
         ["%k"] = time_12h,
         ["%K"] = time_24h,
         ["%R"] = session_time,
+        ["%s"] = tostring(session_pages),
         -- Metadata
         ["%T"] = tostring(title),
         ["%A"] = tostring(authors),
@@ -178,8 +193,6 @@ function Tokens.expand(format_str, ui, session_start_time)
         ["%B"] = tostring(batt_symbol),
         ["%W"] = wifi_symbol,
         ["%m"] = tostring(mem_usage),
-        -- Formatting
-        ["%r"] = " | ",
     }
     return format_str:gsub("(%%%a)", replace)
 end

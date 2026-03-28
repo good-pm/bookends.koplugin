@@ -29,8 +29,18 @@ function Bookends:init()
     self.ui.menu:registerToMainMenu(self)
     self.ui.view:registerViewModule("bookends", self)
     self.session_start_time = os.time()
+    self.session_start_page = self.ui.view.state.page or 0
     self.dirty = true
     self.position_cache = {}
+
+    -- Preset system
+    local Presets = require("ui/presets")
+    self.preset_obj = {
+        presets = G_reader_settings:readSetting("bookends_presets", {}),
+        dispatcher_name = "load_bookends_preset",
+        buildPreset = function() return self:buildPreset() end,
+        loadPreset = function(preset) self:loadPreset(preset) end,
+    }
 end
 
 function Bookends:loadSettings()
@@ -61,6 +71,45 @@ function Bookends:loadSettings()
         end
         self.positions[pos.key] = saved
     end
+end
+
+function Bookends:buildPreset()
+    local util = require("util")
+    local preset = {
+        enabled = self.enabled,
+        defaults = util.tableDeepCopy(self.defaults),
+        positions = {},
+    }
+    for _, pos in ipairs(self.POSITIONS) do
+        preset.positions[pos.key] = util.tableDeepCopy(self.positions[pos.key])
+    end
+    return preset
+end
+
+function Bookends:loadPreset(preset)
+    local util = require("util")
+    if preset.enabled ~= nil then
+        self.enabled = preset.enabled
+        G_reader_settings:saveSetting("bookends_enabled", self.enabled)
+    end
+    if preset.defaults then
+        self.defaults = util.tableDeepCopy(preset.defaults)
+        G_reader_settings:saveSetting("bookends_font_face", self.defaults.font_face)
+        G_reader_settings:saveSetting("bookends_font_size", self.defaults.font_size)
+        G_reader_settings:saveSetting("bookends_font_bold", self.defaults.font_bold)
+        G_reader_settings:saveSetting("bookends_v_offset", self.defaults.v_offset)
+        G_reader_settings:saveSetting("bookends_h_offset", self.defaults.h_offset)
+        G_reader_settings:saveSetting("bookends_overlap_gap", self.defaults.overlap_gap)
+    end
+    if preset.positions then
+        for _, pos in ipairs(self.POSITIONS) do
+            if preset.positions[pos.key] then
+                self.positions[pos.key] = util.tableDeepCopy(preset.positions[pos.key])
+                self:savePositionSetting(pos.key)
+            end
+        end
+    end
+    self:markDirty()
 end
 
 function Bookends:savePositionSetting(key)
@@ -141,7 +190,7 @@ function Bookends:paintTo(bb, x, y)
         if self:isPositionActive(pos.key) then
             local lines = self.positions[pos.key].lines
             local joined = table.concat(lines, "\n")
-            expanded[pos.key] = Tokens.expand(joined, self.ui, self.session_start_time)
+            expanded[pos.key] = Tokens.expand(joined, self.ui, self.session_start_time, self.session_start_page)
         end
     end
 
@@ -302,7 +351,7 @@ function Bookends:buildMainMenu()
                     return pos.label
                 else
                     -- Expand tokens for preview
-                    local preview = Tokens.expand(lines[1], self.ui, self.session_start_time)
+                    local preview = Tokens.expand(lines[1], self.ui, self.session_start_time, self.session_start_page)
                     if #lines > 1 then
                         preview = preview .. " ..."
                     end
@@ -390,6 +439,20 @@ function Bookends:buildMainMenu()
         end,
     })
 
+    -- Presets
+    table.insert(menu, {
+        text = "\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80\xE2\x94\x80",
+        enabled_func = function() return false end,
+    })
+    table.insert(menu, {
+        text = _("Presets"),
+        enabled_func = function() return self.enabled end,
+        sub_item_table_func = function()
+            local Presets = require("ui/presets")
+            return Presets.genPresetMenuItemTable(self.preset_obj)
+        end,
+    })
+
     return menu
 end
 
@@ -402,7 +465,7 @@ function Bookends:buildPositionMenu(pos)
     for i, line in ipairs(lines) do
         table.insert(menu, {
             text_func = function()
-                local preview = Tokens.expand(self.positions[pos.key].lines[i] or "", self.ui, self.session_start_time)
+                local preview = Tokens.expand(self.positions[pos.key].lines[i] or "", self.ui, self.session_start_time, self.session_start_page)
                 if #preview > 45 then
                     preview = preview:sub(1, 42) .. "..."
                 end
@@ -677,6 +740,7 @@ Bookends.TOKEN_CATALOG = {
         { "%p", _("Book % read") },
         { "%P", _("Chapter % read") },
         { "%g", _("Pages read in chapter") },
+        { "%G", _("Total pages in chapter") },
         { "%l", _("Pages left in chapter") },
         { "%L", _("Pages left in book") },
     }},
@@ -686,6 +750,7 @@ Bookends.TOKEN_CATALOG = {
         { "%k", _("12-hour clock") },
         { "%K", _("24-hour clock") },
         { "%R", _("Session reading time") },
+        { "%s", _("Session pages read") },
     }},
     { _("Metadata"), {
         { "%T", _("Document title") },
@@ -698,9 +763,6 @@ Bookends.TOKEN_CATALOG = {
         { "%B", _("Battery icon (dynamic)") },
         { "%W", _("Wi-Fi icon (dynamic)") },
         { "%m", _("Memory usage %") },
-    }},
-    { _("Formatting"), {
-        { "%r", _("Separator ( | )") },
     }},
 }
 

@@ -55,6 +55,25 @@ IconPicker.CATALOG = {
         { "\xE2\x80\x94", _("Em dash") },               -- U+2014
         { "\xE2\x80\x93", _("En dash") },               -- U+2013
         { "\xE2\x80\xA6", _("Horizontal ellipsis") },   -- U+2026
+        { "/",             _("Slash") },                 -- U+002F
+        { "\xE2\x88\x95", _("Division slash") },        -- U+2215
+        { "\xE2\x81\x84", _("Fraction slash") },        -- U+2044
+        { "//",            _("Double slash") },
+        { "~",             _("Tilde") },                 -- U+007E
+        { "\xE2\x80\xA3", _("Triangular bullet") },     -- U+2023
+        { "\xE2\x80\xB9", _("Single angle left") },     -- U+2039
+        { "\xE2\x80\xBA", _("Single angle right") },    -- U+203A
+    }},
+    { _("Misc"), {
+        { "\xE2\x9C\x93", _("Check mark") },            -- U+2713
+        { "\xE2\x9C\x97", _("Cross mark") },            -- U+2717
+        { "\xE2\x88\x9E", _("Infinity") },              -- U+221E
+        { "\xC2\xA7",     _("Section sign") },          -- U+00A7
+        { "\xC2\xB6",     _("Pilcrow / paragraph") },   -- U+00B6
+        { "\xE2\x80\xA0", _("Dagger") },                -- U+2020
+        { "\xE2\x80\xA1", _("Double dagger") },         -- U+2021
+        { "\xC2\xA9",     _("Copyright") },             -- U+00A9
+        { "\xE2\x84\x96", _("Numero") },                -- U+2116
     }},
 }
 
