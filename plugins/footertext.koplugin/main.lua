@@ -84,7 +84,8 @@ function FooterText:expandTokens(format_str)
     -- %h - time left in chapter, %H - time left in document
     local time_left_chapter = "N/A"
     local time_left_doc = "N/A"
-    local avg_time = self.ui.view.footer:getAvgTimePerPage()
+    local footer = self.ui.view.footer
+    local avg_time = footer and footer.getAvgTimePerPage and footer:getAvgTimePerPage()
     if avg_time and avg_time == avg_time and pageno then
         local user_duration_format = G_reader_settings:readSetting("duration_format", "classic")
         local chapter_pages_left = self.ui.toc:getChapterPagesLeft(pageno)
