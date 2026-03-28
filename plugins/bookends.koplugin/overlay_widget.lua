@@ -14,16 +14,10 @@ local OverlayWidget = {}
 -- @param max_width number or nil: if set, truncate lines to this pixel width
 -- @return widget, width, height
 function OverlayWidget.buildTextWidget(text, face, bold, h_anchor, max_width)
-    -- Split on newlines
+    -- Split on newlines (skip empty lines)
     local lines = {}
-    for line in text:gmatch("([^\n]*)\n?") do
-        if line ~= "" or #lines > 0 then
-            table.insert(lines, line)
-        end
-    end
-    -- Remove trailing empty entry from gmatch
-    if #lines > 1 and lines[#lines] == "" then
-        table.remove(lines)
+    for line in text:gmatch("([^\n]+)") do
+        table.insert(lines, line)
     end
     if #lines == 0 then
         return nil, 0, 0
@@ -167,7 +161,12 @@ end
 
 --- Free all widgets in a cache table.
 function OverlayWidget.freeWidgets(widget_cache)
-    for key, entry in pairs(widget_cache) do
+    local keys = {}
+    for key in pairs(widget_cache) do
+        table.insert(keys, key)
+    end
+    for _, key in ipairs(keys) do
+        local entry = widget_cache[key]
         if entry.widget and entry.widget.free then
             entry.widget:free()
         end
