@@ -155,6 +155,7 @@ function FooterText:rebuildWidget()
     if self.text_widget then
         self.text_widget:free()
     end
+    self.current_text = nil
     self:buildWidget()
     UIManager:setDirty(self.ui, "ui")
 end
