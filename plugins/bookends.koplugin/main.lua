@@ -6,6 +6,9 @@ local _ = require("gettext")
 local Screen = Device.screen
 local Tokens = require("tokens")
 local OverlayWidget = require("overlay_widget")
+local InputDialog = require("ui/widget/inputdialog")
+local InfoMessage = require("ui/widget/infomessage")
+local SpinWidget = require("ui/widget/spinwidget")
 
 local Bookends = WidgetContainer:extend{
     name = "bookends",
@@ -207,12 +210,334 @@ function Bookends:onCloseWidget()
 end
 
 function Bookends:addToMainMenu(menu_items)
-    -- Will be implemented in Task 5
     menu_items.bookends = {
         text = _("Bookends"),
         sorting_hint = "setting",
-        sub_item_table = {},
+        sub_item_table = self:buildMainMenu(),
     }
+end
+
+function Bookends:buildMainMenu()
+    local menu = {
+        {
+            text = _("Enable bookends"),
+            checked_func = function()
+                return self.enabled
+            end,
+            callback = function()
+                self.enabled = not self.enabled
+                G_reader_settings:saveSetting("bookends_enabled", self.enabled)
+                self:markDirty()
+            end,
+        },
+    }
+
+    -- Per-position submenus
+    for _, pos in ipairs(self.POSITIONS) do
+        table.insert(menu, {
+            text_func = function()
+                local fmt = self.positions[pos.key].format
+                if fmt == "" then
+                    return pos.label
+                else
+                    return pos.label .. ": " .. fmt
+                end
+            end,
+            enabled_func = function() return self.enabled end,
+            sub_item_table_func = function()
+                return self:buildPositionMenu(pos)
+            end,
+        })
+    end
+
+    -- Separator
+    table.insert(menu, {
+        text = "──────────",
+        enabled_func = function() return false end,
+    })
+
+    -- Global defaults
+    table.insert(menu, {
+        text = _("Default font"),
+        enabled_func = function() return self.enabled end,
+        sub_item_table = self:buildFontMenu(function() return self.defaults.font_face end,
+            function(face)
+                self.defaults.font_face = face
+                G_reader_settings:saveSetting("bookends_font_face", face)
+                self:markDirty()
+            end),
+    })
+    table.insert(menu, {
+        text = _("Default font size"),
+        keep_menu_open = true,
+        enabled_func = function() return self.enabled end,
+        callback = function()
+            self:showSpinner(_("Default font size"), self.defaults.font_size, 8, 36,
+                self.ui.view.footer.settings.text_font_size,
+                function(val)
+                    self.defaults.font_size = val
+                    G_reader_settings:saveSetting("bookends_font_size", val)
+                    self:markDirty()
+                end)
+        end,
+    })
+    table.insert(menu, {
+        text = _("Default vertical offset"),
+        keep_menu_open = true,
+        enabled_func = function() return self.enabled end,
+        callback = function()
+            self:showSpinner(_("Default vertical offset (px)"), self.defaults.v_offset, 0, 200, 35,
+                function(val)
+                    self.defaults.v_offset = val
+                    G_reader_settings:saveSetting("bookends_v_offset", val)
+                    self:markDirty()
+                end)
+        end,
+    })
+    table.insert(menu, {
+        text = _("Default horizontal offset"),
+        keep_menu_open = true,
+        enabled_func = function() return self.enabled end,
+        callback = function()
+            self:showSpinner(_("Default horizontal offset (px)"), self.defaults.h_offset, 0, 200, 10,
+                function(val)
+                    self.defaults.h_offset = val
+                    G_reader_settings:saveSetting("bookends_h_offset", val)
+                    self:markDirty()
+                end)
+        end,
+    })
+    table.insert(menu, {
+        text = _("Overlap gap"),
+        keep_menu_open = true,
+        enabled_func = function() return self.enabled end,
+        callback = function()
+            self:showSpinner(_("Minimum gap between texts (px)"), self.defaults.overlap_gap, 0, 100, 10,
+                function(val)
+                    self.defaults.overlap_gap = val
+                    G_reader_settings:saveSetting("bookends_overlap_gap", val)
+                    self:markDirty()
+                end)
+        end,
+    })
+
+    return menu
+end
+
+function Bookends:buildPositionMenu(pos)
+    local is_corner = pos.h_anchor ~= "center"
+    local menu = {
+        {
+            text = _("Edit format string"),
+            keep_menu_open = true,
+            callback = function()
+                self:editFormatString(pos.key)
+            end,
+        },
+        {
+            text_func = function()
+                if self.positions[pos.key].font_face then
+                    return _("Override font (active)")
+                end
+                return _("Override font")
+            end,
+            sub_item_table_func = function()
+                local items = self:buildFontMenu(
+                    function() return self:getPositionSetting(pos.key, "font_face") end,
+                    function(face)
+                        self.positions[pos.key].font_face = face
+                        self:savePositionSetting(pos.key)
+                        self:markDirty()
+                    end)
+                -- Add "Reset to default" at the top
+                table.insert(items, 1, {
+                    text = _("Reset to default"),
+                    callback = function()
+                        self.positions[pos.key].font_face = nil
+                        self:savePositionSetting(pos.key)
+                        self:markDirty()
+                    end,
+                })
+                return items
+            end,
+        },
+        {
+            text_func = function()
+                if self.positions[pos.key].font_size then
+                    return _("Override font size") .. " (" .. self.positions[pos.key].font_size .. ")"
+                end
+                return _("Override font size")
+            end,
+            keep_menu_open = true,
+            callback = function()
+                self:showSpinner(_("Font size for " .. pos.label),
+                    self:getPositionSetting(pos.key, "font_size"), 8, 36,
+                    self.defaults.font_size,
+                    function(val)
+                        self.positions[pos.key].font_size = val
+                        self:savePositionSetting(pos.key)
+                        self:markDirty()
+                    end)
+            end,
+        },
+        {
+            text_func = function()
+                if self.positions[pos.key].v_offset then
+                    return _("Override vertical offset") .. " (" .. self.positions[pos.key].v_offset .. ")"
+                end
+                return _("Override vertical offset")
+            end,
+            keep_menu_open = true,
+            callback = function()
+                self:showSpinner(_("Vertical offset for " .. pos.label),
+                    self:getPositionSetting(pos.key, "v_offset"), 0, 200,
+                    self.defaults.v_offset,
+                    function(val)
+                        self.positions[pos.key].v_offset = val
+                        self:savePositionSetting(pos.key)
+                        self:markDirty()
+                    end)
+            end,
+        },
+    }
+
+    -- Horizontal offset only for corners
+    if is_corner then
+        table.insert(menu, {
+            text_func = function()
+                if self.positions[pos.key].h_offset then
+                    return _("Override horizontal offset") .. " (" .. self.positions[pos.key].h_offset .. ")"
+                end
+                return _("Override horizontal offset")
+            end,
+            keep_menu_open = true,
+            callback = function()
+                self:showSpinner(_("Horizontal offset for " .. pos.label),
+                    self:getPositionSetting(pos.key, "h_offset"), 0, 200,
+                    self.defaults.h_offset,
+                    function(val)
+                        self.positions[pos.key].h_offset = val
+                        self:savePositionSetting(pos.key)
+                        self:markDirty()
+                    end)
+            end,
+        })
+    end
+
+    -- Reset all overrides
+    table.insert(menu, {
+        text = _("Reset all overrides"),
+        callback = function()
+            local fmt = self.positions[pos.key].format
+            self.positions[pos.key] = { format = fmt }
+            self:savePositionSetting(pos.key)
+            self:markDirty()
+        end,
+    })
+
+    return menu
+end
+
+function Bookends:editFormatString(pos_key)
+    local IconPicker = require("icon_picker")
+
+    local format_dialog
+    format_dialog = InputDialog:new{
+        title = _("Format string"),
+        input = self.positions[pos_key].format,
+        buttons = {
+            {
+                {
+                    text = _("Cancel"),
+                    id = "close",
+                    callback = function()
+                        UIManager:close(format_dialog)
+                    end,
+                },
+                {
+                    text = _("Icons"),
+                    callback = function()
+                        IconPicker:show(function(glyph)
+                            format_dialog:addTextToInput(glyph)
+                        end)
+                    end,
+                },
+                {
+                    text = _("Tokens"),
+                    callback = function()
+                        UIManager:show(InfoMessage:new{
+                            text = _([[
+Tokens:
+%c  current page       %t  total pages
+%p  book % read        %P  chapter % read
+%g  pages read in ch.  %l  pages left in ch.
+%L  pages left in book
+%h  time left (ch.)    %H  time left (book)
+%k  12h clock          %K  24h clock
+%R  session reading time
+%T  title              %A  author(s)
+%S  series             %C  chapter title
+%b  battery level      %B  battery icon
+%r  separator ( | )
+\n  line break]]),
+                        })
+                    end,
+                },
+                {
+                    text = _("Save"),
+                    is_enter_default = true,
+                    callback = function()
+                        self.positions[pos_key].format = format_dialog:getInputText()
+                        self:savePositionSetting(pos_key)
+                        UIManager:close(format_dialog)
+                        self:markDirty()
+                    end,
+                },
+            },
+        },
+    }
+    UIManager:show(format_dialog)
+    format_dialog:onShowKeyboard()
+end
+
+function Bookends:buildFontMenu(get_current, on_select)
+    local cre = require("document/credocument"):engineInit()
+    local FontList = require("fontlist")
+    local face_list = cre.getFontFaces()
+    local menu = {}
+    for _, face_name in ipairs(face_list) do
+        local font_filename, font_faceindex = cre.getFontFaceFilenameAndFaceIndex(face_name)
+        if not font_filename then
+            font_filename, font_faceindex = cre.getFontFaceFilenameAndFaceIndex(face_name, nil, true)
+        end
+        if font_filename then
+            local display_name = FontList:getLocalizedFontName(font_filename, font_faceindex) or face_name
+            table.insert(menu, {
+                text = display_name,
+                checked_func = function()
+                    return get_current() == font_filename
+                end,
+                callback = function()
+                    on_select(font_filename)
+                end,
+            })
+        end
+    end
+    return menu
+end
+
+function Bookends:showSpinner(title, value, min, max, default, on_set)
+    UIManager:show(SpinWidget:new{
+        value = value,
+        value_min = min,
+        value_max = max,
+        default_value = default,
+        title_text = title,
+        ok_text = _("Set"),
+        callback = function(spin)
+            on_set(spin.value)
+        end,
+    })
 end
 
 return Bookends
