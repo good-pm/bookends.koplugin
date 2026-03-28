@@ -249,7 +249,14 @@ function Bookends:buildMainMenu()
                 if fmt == "" then
                     return pos.label
                 else
-                    return pos.label .. ": " .. fmt
+                    -- Expand tokens for preview, truncate to keep menu readable
+                    local Tokens = require("tokens")
+                    local preview = fmt:gsub("\\n", " ")
+                    preview = Tokens.expand(preview, self.ui, self.session_start_time)
+                    if #preview > 40 then
+                        preview = preview:sub(1, 37) .. "..."
+                    end
+                    return pos.label .. ": " .. preview
                 end
             end,
             enabled_func = function() return self.enabled end,
@@ -450,11 +457,43 @@ end
 function Bookends:editFormatString(pos_key)
     local IconPicker = require("icon_picker")
 
+    -- Find the position label for this key
+    local pos_label = pos_key
+    for _, pos in ipairs(self.POSITIONS) do
+        if pos.key == pos_key then
+            pos_label = pos.label
+            break
+        end
+    end
+
+    -- Current bold state for this position
+    local current_bold = self:getPositionSetting(pos_key, "font_bold")
+
     local format_dialog
     format_dialog = InputDialog:new{
-        title = _("Format string"),
+        title = pos_label .. " " .. _("format string"),
         input = self.positions[pos_key].format,
         buttons = {
+            -- Row 1: Style toggle and line break
+            {
+                {
+                    text_func = function()
+                        return current_bold and _("Style: Bold") or _("Style: Regular")
+                    end,
+                    callback = function()
+                        current_bold = not current_bold
+                        -- Update button text
+                        format_dialog:refreshButtons()
+                    end,
+                },
+                {
+                    text = _("Line break"),
+                    callback = function()
+                        format_dialog:addTextToInput("\n")
+                    end,
+                },
+            },
+            -- Row 2: Main actions
             {
                 {
                     text = _("Cancel"),
@@ -466,30 +505,19 @@ function Bookends:editFormatString(pos_key)
                 {
                     text = _("Icons"),
                     callback = function()
-                        IconPicker:show(function(glyph)
-                            format_dialog:addTextToInput(glyph)
+                        format_dialog:onCloseKeyboard()
+                        IconPicker:show(function(value)
+                            format_dialog:addTextToInput(value)
                         end)
                     end,
                 },
                 {
                     text = _("Tokens"),
                     callback = function()
-                        UIManager:show(InfoMessage:new{
-                            text = _([[
-Tokens:
-%c  current page       %t  total pages
-%p  book % read        %P  chapter % read
-%g  pages read in ch.  %l  pages left in ch.
-%L  pages left in book
-%h  time left (ch.)    %H  time left (book)
-%k  12h clock          %K  24h clock
-%R  session reading time
-%T  title              %A  author(s)
-%S  series             %C  chapter title
-%b  battery level      %B  battery icon
-%r  separator ( | )
-\n  line break]]),
-                        })
+                        format_dialog:onCloseKeyboard()
+                        self:showTokenPicker(function(token)
+                            format_dialog:addTextToInput(token)
+                        end)
                     end,
                 },
                 {
@@ -497,6 +525,7 @@ Tokens:
                     is_enter_default = true,
                     callback = function()
                         self.positions[pos_key].format = format_dialog:getInputText()
+                        self.positions[pos_key].font_bold = current_bold or nil
                         self:savePositionSetting(pos_key)
                         UIManager:close(format_dialog)
                         self:markDirty()
@@ -507,6 +536,77 @@ Tokens:
     }
     UIManager:show(format_dialog)
     format_dialog:onShowKeyboard()
+end
+
+-- Token reference as a scrollable picker (same UX as icon picker)
+Bookends.TOKEN_CATALOG = {
+    { _("Page / Progress"), {
+        { "%c", _("Current page number") },
+        { "%t", _("Total pages") },
+        { "%p", _("Book % read") },
+        { "%P", _("Chapter % read") },
+        { "%g", _("Pages read in chapter") },
+        { "%l", _("Pages left in chapter") },
+        { "%L", _("Pages left in book") },
+    }},
+    { _("Time / Reading"), {
+        { "%h", _("Time left in chapter") },
+        { "%H", _("Time left in book") },
+        { "%k", _("12-hour clock") },
+        { "%K", _("24-hour clock") },
+        { "%R", _("Session reading time") },
+    }},
+    { _("Metadata"), {
+        { "%T", _("Document title") },
+        { "%A", _("Author(s)") },
+        { "%S", _("Series with index") },
+        { "%C", _("Chapter title") },
+    }},
+    { _("Device"), {
+        { "%b", _("Battery level (number)") },
+        { "%B", _("Battery icon (dynamic)") },
+        { "%W", _("Wi-Fi icon (dynamic)") },
+        { "%m", _("Memory usage %") },
+    }},
+    { _("Formatting"), {
+        { "%r", _("Separator ( | )") },
+    }},
+}
+
+function Bookends:showTokenPicker(on_select)
+    local Menu = require("ui/widget/menu")
+    local items = {}
+    for _, category in ipairs(self.TOKEN_CATALOG) do
+        local label = category[1]
+        local tokens = category[2]
+        table.insert(items, {
+            text = "\xE2\x94\x80\xE2\x94\x80 " .. label .. " \xE2\x94\x80\xE2\x94\x80",
+            dim = true,
+            callback = function() end,
+        })
+        for _, token_entry in ipairs(tokens) do
+            table.insert(items, {
+                text = token_entry[1] .. "  " .. token_entry[2],
+                insert_value = token_entry[1],
+            })
+        end
+    end
+
+    local menu
+    menu = Menu:new{
+        title = _("Insert token"),
+        item_table = items,
+        width = math.floor(Screen:getWidth() * 0.8),
+        height = math.floor(Screen:getHeight() * 0.8),
+        items_per_page = 14,
+        onMenuChoice = function(_, item)
+            if item.insert_value then
+                UIManager:close(menu)
+                on_select(item.insert_value)
+            end
+        end,
+    }
+    UIManager:show(menu)
 end
 
 function Bookends:buildFontMenu(get_current, on_select)

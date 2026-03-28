@@ -1,16 +1,51 @@
 local Font = require("ui/font")
 local TextWidget = require("ui/widget/textwidget")
-local VerticalGroup = require("ui/widget/verticalgroup")
 local Device = require("device")
 local Screen = Device.screen
 
 local OverlayWidget = {}
 
---- Build a TextWidget or VerticalGroup for a single line or multi-line string.
+--- Simple multi-line widget that paints TextWidgets stacked vertically.
+-- Avoids VerticalGroup to ensure reliable rendering on e-ink devices.
+local MultiLineWidget = {}
+MultiLineWidget.__index = MultiLineWidget
+
+function MultiLineWidget:new(o)
+    return setmetatable(o or {}, self)
+end
+
+function MultiLineWidget:paintTo(bb, x, y)
+    local y_offset = 0
+    for _, entry in ipairs(self.lines) do
+        local lx = x
+        if self.align == "center" then
+            lx = x + math.floor((self.width - entry.w) / 2)
+        elseif self.align == "right" then
+            lx = x + self.width - entry.w
+        end
+        entry.widget:paintTo(bb, lx, y + y_offset)
+        y_offset = y_offset + entry.h
+    end
+end
+
+function MultiLineWidget:getSize()
+    return { w = self.width, h = self.height }
+end
+
+function MultiLineWidget:free()
+    for _, entry in ipairs(self.lines) do
+        if entry.widget and entry.widget.free then
+            entry.widget:free()
+        end
+    end
+    self.lines = {}
+end
+
+--- Build a TextWidget or MultiLineWidget for a single line or multi-line string.
 -- @param text string: the expanded text (may contain newlines)
 -- @param face font face object
 -- @param bold boolean
--- @param h_anchor string: "left", "center", or "right" — controls VerticalGroup alignment
+-- @param h_anchor string: "left", "center", or "right"
 -- @param max_width number or nil: if set, truncate lines to this pixel width
 -- @return widget, width, height
 function OverlayWidget.buildTextWidget(text, face, bold, h_anchor, max_width)
@@ -21,13 +56,6 @@ function OverlayWidget.buildTextWidget(text, face, bold, h_anchor, max_width)
     end
     if #lines == 0 then
         return nil, 0, 0
-    end
-
-    local align = "center"
-    if h_anchor == "left" then
-        align = "left"
-    elseif h_anchor == "right" then
-        align = "right"
     end
 
     if #lines == 1 then
@@ -42,8 +70,15 @@ function OverlayWidget.buildTextWidget(text, face, bold, h_anchor, max_width)
         return tw, size.w, size.h
     end
 
-    -- Multi-line: VerticalGroup of TextWidgets
-    local group = VerticalGroup:new{ align = align }
+    -- Multi-line: build individual TextWidgets and stack manually
+    local align = "center"
+    if h_anchor == "left" then
+        align = "left"
+    elseif h_anchor == "right" then
+        align = "right"
+    end
+
+    local line_entries = {}
     local max_w = 0
     local total_h = 0
     for _, line in ipairs(lines) do
@@ -54,20 +89,22 @@ function OverlayWidget.buildTextWidget(text, face, bold, h_anchor, max_width)
             max_width = max_width,
             truncate_with_ellipsis = max_width ~= nil,
         }
-        table.insert(group, tw)
         local size = tw:getSize()
+        table.insert(line_entries, { widget = tw, w = size.w, h = size.h })
         if size.w > max_w then max_w = size.w end
         total_h = total_h + size.h
     end
-    return group, max_w, total_h
+
+    local mlw = MultiLineWidget:new{
+        lines = line_entries,
+        width = max_w,
+        height = total_h,
+        align = align,
+    }
+    return mlw, max_w, total_h
 end
 
---- Measure the width of the widest line in a text string, without building a persistent widget.
--- Used for overlap calculation before truncation is applied.
--- @param text string
--- @param face font face
--- @param bold boolean
--- @return number: pixel width of widest line
+--- Measure the width of the widest line in a text string.
 function OverlayWidget.measureTextWidth(text, face, bold)
     local max_w = 0
     for line in text:gmatch("([^\n]+)") do
@@ -84,12 +121,10 @@ function OverlayWidget.measureTextWidth(text, face, bold)
 end
 
 --- Calculate max_width for each position in a row, applying overlap prevention.
--- Center gets priority. Returns a table { left=max_w|nil, center=max_w|nil, right=max_w|nil }.
--- nil means no truncation needed.
+-- Center gets priority. Returns { left=max_w|nil, center=max_w|nil, right=max_w|nil }.
 function OverlayWidget.calculateRowLimits(left_w, center_w, right_w, screen_w, gap, h_offset)
     local limits = { left = nil, center = nil, right = nil }
 
-    -- Center gets priority: only truncate if it exceeds full screen width minus margins
     if center_w then
         local center_max = screen_w - 2 * gap
         if center_w > center_max then
@@ -99,7 +134,6 @@ function OverlayWidget.calculateRowLimits(left_w, center_w, right_w, screen_w, g
     end
 
     if center_w then
-        -- Side positions share the space not used by center
         local available_side = math.floor((screen_w - center_w) / 2) - gap
         if left_w and left_w > available_side - h_offset then
             limits.left = math.max(0, available_side - h_offset)
@@ -108,7 +142,6 @@ function OverlayWidget.calculateRowLimits(left_w, center_w, right_w, screen_w, g
             limits.right = math.max(0, available_side - h_offset)
         end
     else
-        -- No center: left and right split the screen
         if left_w and right_w then
             local half = math.floor(screen_w / 2) - math.floor(gap / 2)
             if left_w > half - h_offset then
@@ -118,18 +151,13 @@ function OverlayWidget.calculateRowLimits(left_w, center_w, right_w, screen_w, g
                 limits.right = math.max(0, half - h_offset)
             end
         end
-        -- If only one side active, it gets full width minus its offset
         if left_w and not right_w then
             local max = screen_w - h_offset
-            if left_w > max then
-                limits.left = max
-            end
+            if left_w > max then limits.left = max end
         end
         if right_w and not left_w then
             local max = screen_w - h_offset
-            if right_w > max then
-                limits.right = max
-            end
+            if right_w > max then limits.right = max end
         end
     end
 
@@ -144,13 +172,13 @@ function OverlayWidget.computeCoordinates(h_anchor, v_anchor, text_w, text_h, sc
         x = h_offset
     elseif h_anchor == "center" then
         x = math.floor((screen_w - text_w) / 2)
-    else -- "right"
+    else
         x = screen_w - text_w - h_offset
     end
 
     if v_anchor == "top" then
         y = v_offset
-    else -- "bottom"
+    else
         y = screen_h - text_h - v_offset
     end
 

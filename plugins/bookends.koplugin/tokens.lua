@@ -69,28 +69,31 @@ function Tokens.expand(format_str, ui, session_start_time)
         end
     end
 
-    -- Time left in chapter / document
+    -- Time left in chapter / document (via statistics plugin)
     local time_left_chapter = ""
     local time_left_doc = ""
-    local footer = ui.view.footer
-    local avg_time = footer and footer.getAvgTimePerPage and footer:getAvgTimePerPage()
-    if avg_time and avg_time == avg_time and pageno then
-        local user_duration_format = G_reader_settings:readSetting("duration_format", "classic")
-        local ch_left = ui.toc:getChapterPagesLeft(pageno)
-            or doc:getTotalPagesLeft(pageno)
+    if pageno and ui.statistics and ui.statistics.getTimeForPages then
+        local ch_left = ui.toc and ui.toc:getChapterPagesLeft(pageno, true)
+        if not ch_left then
+            ch_left = doc:getTotalPagesLeft(pageno)
+        end
         if ch_left then
-            time_left_chapter = datetime.secondsToClockDuration(
-                user_duration_format, ch_left * avg_time, true)
+            local result = ui.statistics:getTimeForPages(ch_left)
+            if result and result ~= _("N/A") then
+                time_left_chapter = result
+            end
         end
         local doc_left = doc:getTotalPagesLeft(pageno)
         if doc_left then
-            time_left_doc = datetime.secondsToClockDuration(
-                user_duration_format, doc_left * avg_time, true)
+            local result = ui.statistics:getTimeForPages(doc_left)
+            if result and result ~= _("N/A") then
+                time_left_doc = result
+            end
         end
     end
 
     -- Clock
-    local time_12h = os.date("%I:%M %p")
+    local time_12h = os.date("%I:%M %p"):gsub("^0", "") -- strip leading zero
     local time_24h = os.date("%H:%M")
 
     -- Session reading time
@@ -120,6 +123,34 @@ function Tokens.expand(format_str, ui, session_start_time)
         batt_lvl = ""
     end
 
+    -- Wi-Fi (dynamic icon)
+    local NetworkMgr = require("ui/network/manager")
+    local wifi_symbol
+    if NetworkMgr:isWifiOn() then
+        wifi_symbol = "\xEE\xB2\xA8" -- U+ECA8 wifi on
+    else
+        wifi_symbol = "\xEE\xB2\xA9" -- U+ECA9 wifi off
+    end
+
+    -- Memory usage
+    local mem_usage = ""
+    local meminfo = io.open("/proc/meminfo", "r")
+    if meminfo then
+        local total, available
+        for line in meminfo:lines() do
+            if line:match("^MemTotal:") then
+                total = tonumber(line:match("(%d+)"))
+            elseif line:match("^MemAvailable:") then
+                available = tonumber(line:match("(%d+)"))
+            end
+            if total and available then break end
+        end
+        meminfo:close()
+        if total and available and total > 0 then
+            mem_usage = math.floor((total - available) / total * 100)
+        end
+    end
+
     local replace = {
         -- Page/Progress
         ["%c"] = tostring(currentpage),
@@ -143,6 +174,8 @@ function Tokens.expand(format_str, ui, session_start_time)
         -- Device
         ["%b"] = tostring(batt_lvl),
         ["%B"] = tostring(batt_symbol),
+        ["%W"] = wifi_symbol,
+        ["%m"] = tostring(mem_usage),
         -- Formatting
         ["%r"] = " | ",
     }
