@@ -790,11 +790,18 @@ Bookends.TOKEN_CATALOG = {
         { "%l", _("Pages left in chapter") },
         { "%L", _("Pages left in book") },
     }},
-    { _("Time / Reading"), {
-        { "%h", _("Time left in chapter") },
-        { "%H", _("Time left in book") },
+    { _("Time / Date"), {
         { "%k", _("12-hour clock") },
         { "%K", _("24-hour clock") },
+        { "%d", _("Date short (28 Mar)") },
+        { "%D", _("Date long (28 March 2026)") },
+        { "%n", _("Date numeric (28/03/2026)") },
+        { "%w", _("Weekday (Friday)") },
+        { "%a", _("Weekday short (Fri)") },
+    }},
+    { _("Reading"), {
+        { "%h", _("Time left in chapter") },
+        { "%H", _("Time left in book") },
         { "%R", _("Session reading time") },
         { "%s", _("Session pages read") },
     }},

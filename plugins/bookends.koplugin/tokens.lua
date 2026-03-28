@@ -101,6 +101,13 @@ function Tokens.expand(format_str, ui, session_start_time, session_pages_read, p
     local time_12h = os.date("%I:%M %p"):gsub("^0", "") -- strip leading zero
     local time_24h = os.date("%H:%M")
 
+    -- Dates
+    local date_short = os.date("%d %b")          -- 28 Mar
+    local date_long = os.date("%d %B %Y")         -- 28 March 2026
+    local date_num = os.date("%d/%m/%Y")          -- 28/03/2026
+    local date_weekday = os.date("%A")            -- Friday
+    local date_weekday_short = os.date("%a")      -- Fri
+
     -- Session reading time
     local session_time = ""
     if session_start_time then
@@ -173,6 +180,11 @@ function Tokens.expand(format_str, ui, session_start_time, session_pages_read, p
         ["%H"] = tostring(time_left_doc),
         ["%k"] = time_12h,
         ["%K"] = time_24h,
+        ["%d"] = date_short,
+        ["%D"] = date_long,
+        ["%n"] = date_num,
+        ["%w"] = date_weekday,
+        ["%a"] = date_weekday_short,
         ["%R"] = session_time,
         ["%s"] = tostring(session_pages),
         -- Metadata
@@ -194,6 +206,8 @@ function Tokens.expand(format_str, ui, session_start_time, session_pages_read, p
             ["%l"] = "[ch.left]", ["%L"] = "[left]",
             ["%h"] = "[ch.time]", ["%H"] = "[time]",
             ["%k"] = "[12h]", ["%K"] = "[24h]",
+            ["%d"] = "[date]", ["%D"] = "[date.long]",
+            ["%n"] = "[dd/mm/yy]", ["%w"] = "[weekday]", ["%a"] = "[wkday]",
             ["%R"] = "[session]", ["%s"] = "[pages]",
             ["%T"] = "[title]", ["%A"] = "[author]",
             ["%S"] = "[series]", ["%C"] = "[chapter]",
