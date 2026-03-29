@@ -71,8 +71,9 @@ function OverlayWidget.buildTextWidget(text, line_configs, h_anchor, max_width)
 
     if #lines == 1 then
         local cfg = getConfig(1)
+        local display_text = cfg.uppercase and lines[1]:upper() or lines[1]
         local tw = TextWidget:new(textWidgetOpts{
-            text = lines[1],
+            text = display_text,
             face = cfg.face,
             bold = cfg.bold,
             max_width = max_width,
@@ -94,8 +95,9 @@ function OverlayWidget.buildTextWidget(text, line_configs, h_anchor, max_width)
     local total_h = 0
     for i, line in ipairs(lines) do
         local cfg = getConfig(i)
+        local display_text = cfg.uppercase and line:upper() or line
         local tw = TextWidget:new(textWidgetOpts{
-            text = line,
+            text = display_text,
             face = cfg.face,
             bold = cfg.bold,
             max_width = max_width,
@@ -127,8 +129,9 @@ function OverlayWidget.measureTextWidth(text, line_configs)
     for line in text:gmatch("([^\n]+)") do
         i = i + 1
         local cfg = line_configs[i] or line_configs[#line_configs] or { face = nil, bold = false }
+        local display_text = cfg.uppercase and line:upper() or line
         local tw = TextWidget:new(textWidgetOpts{
-            text = line,
+            text = display_text,
             face = cfg.face,
             bold = cfg.bold,
         })

@@ -268,6 +268,7 @@ function Bookends:paintTo(bb, x, y)
             local cfg = self:resolveLineConfig(face_name, font_size, style)
             cfg.v_nudge = (pos_settings.line_v_nudge and pos_settings.line_v_nudge[i]) or 0
             cfg.h_nudge = (pos_settings.line_h_nudge and pos_settings.line_h_nudge[i]) or 0
+            cfg.uppercase = (pos_settings.line_uppercase and pos_settings.line_uppercase[i]) or false
             table.insert(line_configs, cfg)
         end
 
@@ -744,6 +745,7 @@ function Bookends:editLineString(pos, line_idx)
     pos_settings.line_font_face = pos_settings.line_font_face or {}
     pos_settings.line_v_nudge = pos_settings.line_v_nudge or {}
     pos_settings.line_h_nudge = pos_settings.line_h_nudge or {}
+    pos_settings.line_uppercase = pos_settings.line_uppercase or {}
 
     -- Snapshot for cancel/restore
     local original_settings = util.tableDeepCopy(pos_settings)
@@ -753,6 +755,7 @@ function Bookends:editLineString(pos, line_idx)
     local line_face = pos_settings.line_font_face[line_idx] -- nil = use default
     local line_v_nudge = pos_settings.line_v_nudge[line_idx] or 0
     local line_h_nudge = pos_settings.line_h_nudge[line_idx] or 0
+    local line_uppercase = pos_settings.line_uppercase[line_idx] or false
 
     -- Live preview: write current local state to settings and repaint
     local function applyLivePreview()
@@ -761,6 +764,7 @@ function Bookends:editLineString(pos, line_idx)
         pos_settings.line_font_face[line_idx] = line_face
         pos_settings.line_v_nudge[line_idx] = line_v_nudge ~= 0 and line_v_nudge or nil
         pos_settings.line_h_nudge[line_idx] = line_h_nudge ~= 0 and line_h_nudge or nil
+        pos_settings.line_uppercase[line_idx] = line_uppercase or nil
         self:savePositionSetting(pos.key)
         self:markDirty()
     end
@@ -787,8 +791,20 @@ function Bookends:editLineString(pos, line_idx)
         end,
         callback = function() end,
     }
+    local case_button = {
+        text_func = function()
+            return line_uppercase and "AA" or "Aa"
+        end,
+        callback = function() end,
+    }
 
     local format_dialog
+
+    case_button.callback = function()
+        line_uppercase = not line_uppercase
+        applyLivePreview()
+        format_dialog:reinit()
+    end
 
     style_button.callback = function()
         local styles = self.STYLES
@@ -903,7 +919,7 @@ function Bookends:editLineString(pos, line_idx)
         end,
         buttons = {
             -- Row 1: style controls
-            { style_button, size_button, font_button },
+            { style_button, size_button, font_button, case_button },
             -- Row 2: position nudge (L/R on left, label center, U/D on right)
             { nudge_left, nudge_right, nudge_label, nudge_up, nudge_down },
             -- Row 3: main actions
@@ -951,6 +967,7 @@ function Bookends:editLineString(pos, line_idx)
                             if pos_settings.line_font_face then table.remove(pos_settings.line_font_face, line_idx) end
                             if pos_settings.line_v_nudge then table.remove(pos_settings.line_v_nudge, line_idx) end
                             if pos_settings.line_h_nudge then table.remove(pos_settings.line_h_nudge, line_idx) end
+                            if pos_settings.line_uppercase then table.remove(pos_settings.line_uppercase, line_idx) end
                         else
                             -- Save the text (style/font/nudge already applied via live preview)
                             pos_settings.lines[line_idx] = new_text
@@ -988,6 +1005,7 @@ function Bookends:showLineManageDialog(pos, line_idx, touchmenu_instance)
         if ps.line_font_face then table.remove(ps.line_font_face, line_idx) end
         if ps.line_v_nudge then table.remove(ps.line_v_nudge, line_idx) end
         if ps.line_h_nudge then table.remove(ps.line_h_nudge, line_idx) end
+        if ps.line_uppercase then table.remove(ps.line_uppercase, line_idx) end
         self:savePositionSetting(pos.key)
         self:markDirty()
         refreshMenu()
@@ -1009,6 +1027,9 @@ function Bookends:showLineManageDialog(pos, line_idx, touchmenu_instance)
         end
         if ps.line_h_nudge then
             ps.line_h_nudge[a], ps.line_h_nudge[b] = ps.line_h_nudge[b], ps.line_h_nudge[a]
+        end
+        if ps.line_uppercase then
+            ps.line_uppercase[a], ps.line_uppercase[b] = ps.line_uppercase[b], ps.line_uppercase[a]
         end
         self:savePositionSetting(pos.key)
         self:markDirty()
@@ -1046,6 +1067,7 @@ function Bookends:showLineManageDialog(pos, line_idx, touchmenu_instance)
         target.line_font_face = target.line_font_face or {}
         target.line_v_nudge = target.line_v_nudge or {}
         target.line_h_nudge = target.line_h_nudge or {}
+        target.line_uppercase = target.line_uppercase or {}
 
         -- Append to target
         local ti = #target.lines + 1
@@ -1055,6 +1077,7 @@ function Bookends:showLineManageDialog(pos, line_idx, touchmenu_instance)
         target.line_font_face[ti] = ps.line_font_face and ps.line_font_face[line_idx] or nil
         target.line_v_nudge[ti] = ps.line_v_nudge and ps.line_v_nudge[line_idx] or nil
         target.line_h_nudge[ti] = ps.line_h_nudge and ps.line_h_nudge[line_idx] or nil
+        target.line_uppercase[ti] = ps.line_uppercase and ps.line_uppercase[line_idx] or nil
 
         -- Remove from source
         removeLine()
