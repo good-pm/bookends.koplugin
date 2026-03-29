@@ -648,6 +648,40 @@ Bookends.BUILT_IN_PRESETS = {
             },
         },
     },
+    {
+        name = _("Token test"),
+        preset = {
+            enabled = true,
+            positions = {
+                tl = { lines = {
+                    "%T",
+                    "%A",
+                    "%S",
+                    "%C",
+                }, line_font_size = { [1] = 10, [2] = 10, [3] = 10, [4] = 10 } },
+                tc = { lines = {
+                    "%k \xC2\xB7 %K",
+                    "%d \xC2\xB7 %D",
+                    "%n \xC2\xB7 %w \xC2\xB7 %a",
+                }, line_font_size = { [1] = 10, [2] = 10, [3] = 10 } },
+                tr = { lines = {
+                    "%B %b \xC2\xB7 %W",
+                    "%m",
+                }, line_font_size = { [1] = 10, [2] = 10 } },
+                bl = { lines = {
+                    "%R session \xC2\xB7 %s pages",
+                    "%h ch \xC2\xB7 %H book",
+                }, line_font_size = { [1] = 10, [2] = 10 }, v_offset = 16 },
+                bc = { lines = {
+                    "Page %c of %t (%p)",
+                }, line_font_size = { [1] = 10 }, v_offset = 35 },
+                br = { lines = {
+                    "Ch: %g/%G (%P)",
+                    "Left: %l ch \xC2\xB7 %L book",
+                }, line_font_size = { [1] = 10, [2] = 10 }, v_offset = 14 },
+            },
+        },
+    },
 }
 
 function Bookends:buildPresetsMenu()

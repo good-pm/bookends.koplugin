@@ -32,10 +32,11 @@ function Tokens.expand(format_str, ui, session_start_time, session_pages_read, p
         totalpages = doc:getPageCount()
     end
 
-    -- Book percentage
+    -- Book percentage (always from raw page numbers)
     local percent = ""
-    if type(currentpage) == "number" and type(totalpages) == "number" and totalpages > 0 then
-        percent = math.floor(currentpage / totalpages * 100) .. "%"
+    local raw_total = doc:getPageCount()
+    if pageno and raw_total and raw_total > 0 then
+        percent = math.floor(pageno / raw_total * 100) .. "%"
     end
 
     -- Chapter progress
