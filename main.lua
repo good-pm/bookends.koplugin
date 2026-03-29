@@ -409,78 +409,80 @@ function Bookends:buildMainMenu()
     -- Add separator after last position entry
     menu[#menu].separator = true
 
-    -- Global defaults
-    table.insert(menu, {
-        text = _("Default font"),
-        enabled_func = function() return self.enabled end,
-        sub_item_table = self:buildFontMenu(function() return self.defaults.font_face end,
-            function(face)
-                self.defaults.font_face = face
-                G_reader_settings:saveSetting("bookends_font_face", face)
-                self:markDirty()
-            end),
-    })
-    table.insert(menu, {
-        text = _("Default font size"),
-        keep_menu_open = true,
-        enabled_func = function() return self.enabled end,
-        callback = function()
-            self:showSpinner(_("Default font size"), self.defaults.font_size, 8, 36,
-                self.ui.view.footer.settings.text_font_size,
-                function(val)
-                    self.defaults.font_size = val
-                    G_reader_settings:saveSetting("bookends_font_size", val)
-                    self:markDirty()
-                end)
-        end,
-    })
-    table.insert(menu, {
-        text = _("Default vertical offset"),
-        keep_menu_open = true,
-        enabled_func = function() return self.enabled end,
-        callback = function()
-            self:showSpinner(_("Default vertical offset (px)"), self.defaults.v_offset, 0, 999, 35,
-                function(val)
-                    self.defaults.v_offset = val
-                    G_reader_settings:saveSetting("bookends_v_offset", val)
-                    self:markDirty()
-                end)
-        end,
-    })
-    table.insert(menu, {
-        text = _("Default horizontal offset"),
-        keep_menu_open = true,
-        enabled_func = function() return self.enabled end,
-        callback = function()
-            self:showSpinner(_("Default horizontal offset (px)"), self.defaults.h_offset, 0, 999, 18,
-                function(val)
-                    self.defaults.h_offset = val
-                    G_reader_settings:saveSetting("bookends_h_offset", val)
-                    self:markDirty()
-                end)
-        end,
-    })
-    table.insert(menu, {
-        text = _("Overlap gap"),
-        keep_menu_open = true,
-        enabled_func = function() return self.enabled end,
-        callback = function()
-            self:showSpinner(_("Minimum gap between texts (px)"), self.defaults.overlap_gap, 0, 999, 50,
-                function(val)
-                    self.defaults.overlap_gap = val
-                    G_reader_settings:saveSetting("bookends_overlap_gap", val)
-                    self:markDirty()
-                end)
-        end,
-        separator = true,
-    })
-
     -- Presets
     table.insert(menu, {
         text = _("Presets"),
         enabled_func = function() return self.enabled end,
         sub_item_table_func = function()
             return self:buildPresetsMenu()
+        end,
+    })
+
+    -- Defaults submenu
+    table.insert(menu, {
+        text = _("Defaults"),
+        enabled_func = function() return self.enabled end,
+        sub_item_table_func = function()
+            return {
+                {
+                    text = _("Default font"),
+                    sub_item_table = self:buildFontMenu(function() return self.defaults.font_face end,
+                        function(face)
+                            self.defaults.font_face = face
+                            G_reader_settings:saveSetting("bookends_font_face", face)
+                            self:markDirty()
+                        end),
+                },
+                {
+                    text = _("Default font size"),
+                    keep_menu_open = true,
+                    callback = function()
+                        self:showSpinner(_("Default font size"), self.defaults.font_size, 8, 36,
+                            self.ui.view.footer.settings.text_font_size,
+                            function(val)
+                                self.defaults.font_size = val
+                                G_reader_settings:saveSetting("bookends_font_size", val)
+                                self:markDirty()
+                            end)
+                    end,
+                },
+                {
+                    text = _("Default vertical offset"),
+                    keep_menu_open = true,
+                    callback = function()
+                        self:showSpinner(_("Default vertical offset (px)"), self.defaults.v_offset, 0, 999, 35,
+                            function(val)
+                                self.defaults.v_offset = val
+                                G_reader_settings:saveSetting("bookends_v_offset", val)
+                                self:markDirty()
+                            end)
+                    end,
+                },
+                {
+                    text = _("Default horizontal offset"),
+                    keep_menu_open = true,
+                    callback = function()
+                        self:showSpinner(_("Default horizontal offset (px)"), self.defaults.h_offset, 0, 999, 18,
+                            function(val)
+                                self.defaults.h_offset = val
+                                G_reader_settings:saveSetting("bookends_h_offset", val)
+                                self:markDirty()
+                            end)
+                    end,
+                },
+                {
+                    text = _("Overlap gap"),
+                    keep_menu_open = true,
+                    callback = function()
+                        self:showSpinner(_("Minimum gap between texts (px)"), self.defaults.overlap_gap, 0, 999, 50,
+                            function(val)
+                                self.defaults.overlap_gap = val
+                                G_reader_settings:saveSetting("bookends_overlap_gap", val)
+                                self:markDirty()
+                            end)
+                    end,
+                },
+            }
         end,
     })
 
