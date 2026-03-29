@@ -753,7 +753,8 @@ function Bookends:editLineString(pos, line_idx)
         title = pos.label .. " \xE2\x80\x94 " .. _("Line") .. " " .. line_idx,
         input = current_text,
         edited_callback = function()
-            -- Live preview of text changes
+            -- Live preview of text changes (guard: fires during init before format_dialog is assigned)
+            if not format_dialog then return end
             local live_text = format_dialog:getInputText()
             if live_text and live_text ~= "" then
                 pos_settings.lines[line_idx] = live_text
