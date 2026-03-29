@@ -594,6 +594,7 @@ end
 
 function Bookends:editLineString(pos, line_idx)
     local IconPicker = require("icon_picker")
+    local util = require("util")
     local pos_settings = self.positions[pos.key]
 
     local current_text = pos_settings.lines[line_idx] or ""
@@ -605,11 +606,25 @@ function Bookends:editLineString(pos, line_idx)
     pos_settings.line_v_nudge = pos_settings.line_v_nudge or {}
     pos_settings.line_h_nudge = pos_settings.line_h_nudge or {}
 
+    -- Snapshot for cancel/restore
+    local original_settings = util.tableDeepCopy(pos_settings)
+
     local line_style = pos_settings.line_style[line_idx] or "regular"
     local line_size = pos_settings.line_font_size[line_idx] -- nil = use default
     local line_face = pos_settings.line_font_face[line_idx] -- nil = use default
     local line_v_nudge = pos_settings.line_v_nudge[line_idx] or 0
     local line_h_nudge = pos_settings.line_h_nudge[line_idx] or 0
+
+    -- Live preview: write current local state to settings and repaint
+    local function applyLivePreview()
+        pos_settings.line_style[line_idx] = line_style ~= "regular" and line_style or nil
+        pos_settings.line_font_size[line_idx] = line_size
+        pos_settings.line_font_face[line_idx] = line_face
+        pos_settings.line_v_nudge[line_idx] = line_v_nudge ~= 0 and line_v_nudge or nil
+        pos_settings.line_h_nudge[line_idx] = line_h_nudge ~= 0 and line_h_nudge or nil
+        self:savePositionSetting(pos.key)
+        self:markDirty()
+    end
 
     -- Style cycle button
     local style_button = {
@@ -637,7 +652,6 @@ function Bookends:editLineString(pos, line_idx)
     local format_dialog
 
     style_button.callback = function()
-        -- Cycle through styles
         local styles = self.STYLES
         for idx, s in ipairs(styles) do
             if s == line_style then
@@ -645,6 +659,7 @@ function Bookends:editLineString(pos, line_idx)
                 break
             end
         end
+        applyLivePreview()
         format_dialog:reinit()
     end
 
@@ -659,6 +674,7 @@ function Bookends:editLineString(pos, line_idx)
             ok_text = _("Set"),
             callback = function(spin)
                 line_size = spin.value
+                applyLivePreview()
                 format_dialog:reinit()
             end,
         })
@@ -668,6 +684,7 @@ function Bookends:editLineString(pos, line_idx)
         format_dialog:onCloseKeyboard()
         self:showFontPicker(line_face or self:getPositionSetting(pos.key, "font_face"), function(font_filename)
             line_face = font_filename
+            applyLivePreview()
             format_dialog:reinit()
         end)
     end
@@ -702,23 +719,28 @@ function Bookends:editLineString(pos, line_idx)
 
     nudge_up.callback = function()
         line_v_nudge = line_v_nudge - nudge_step
+        applyLivePreview()
         format_dialog:reinit()
     end
     nudge_down.callback = function()
         line_v_nudge = line_v_nudge + nudge_step
+        applyLivePreview()
         format_dialog:reinit()
     end
     nudge_left.callback = function()
         line_h_nudge = line_h_nudge - nudge_step
+        applyLivePreview()
         format_dialog:reinit()
     end
     nudge_right.callback = function()
         line_h_nudge = line_h_nudge + nudge_step
+        applyLivePreview()
         format_dialog:reinit()
     end
     nudge_label.callback = function()
         line_v_nudge = 0
         line_h_nudge = 0
+        applyLivePreview()
         format_dialog:reinit()
     end
 
@@ -735,20 +757,11 @@ function Bookends:editLineString(pos, line_idx)
                 {
                     text = _("Cancel"),
                     callback = function()
-                        -- Restore original text if this was an edit (not a new line)
-                        if current_text ~= "" then
-                            pos_settings.lines[line_idx] = current_text
-                            self:savePositionSetting(pos.key)
-                        else
-                            -- New empty line: remove it
-                            table.remove(pos_settings.lines, line_idx)
-                            if pos_settings.line_style then table.remove(pos_settings.line_style, line_idx) end
-                            if pos_settings.line_font_size then table.remove(pos_settings.line_font_size, line_idx) end
-                            if pos_settings.line_font_face then table.remove(pos_settings.line_font_face, line_idx) end
-                            if pos_settings.line_v_nudge then table.remove(pos_settings.line_v_nudge, line_idx) end
-                            if pos_settings.line_h_nudge then table.remove(pos_settings.line_h_nudge, line_idx) end
-                            self:savePositionSetting(pos.key)
+                        -- Restore all original settings
+                        for k, v in pairs(original_settings) do
+                            pos_settings[k] = v
                         end
+                        self:savePositionSetting(pos.key)
                         UIManager:close(format_dialog)
                         self:markDirty()
                     end,
@@ -777,6 +790,7 @@ function Bookends:editLineString(pos, line_idx)
                     callback = function()
                         local new_text = format_dialog:getInputText()
                         if new_text == "" then
+                            -- Empty text: remove the line entirely
                             table.remove(pos_settings.lines, line_idx)
                             if pos_settings.line_style then table.remove(pos_settings.line_style, line_idx) end
                             if pos_settings.line_font_size then table.remove(pos_settings.line_font_size, line_idx) end
@@ -784,15 +798,9 @@ function Bookends:editLineString(pos, line_idx)
                             if pos_settings.line_v_nudge then table.remove(pos_settings.line_v_nudge, line_idx) end
                             if pos_settings.line_h_nudge then table.remove(pos_settings.line_h_nudge, line_idx) end
                         else
+                            -- Save the text (style/font/nudge already applied via live preview)
                             pos_settings.lines[line_idx] = new_text
-                            pos_settings.line_style = pos_settings.line_style or {}
-                            pos_settings.line_style[line_idx] = line_style ~= "regular" and line_style or nil
-                            pos_settings.line_font_size[line_idx] = line_size
-                            pos_settings.line_font_face[line_idx] = line_face
-                            pos_settings.line_v_nudge = pos_settings.line_v_nudge or {}
-                            pos_settings.line_h_nudge = pos_settings.line_h_nudge or {}
-                            pos_settings.line_v_nudge[line_idx] = line_v_nudge ~= 0 and line_v_nudge or nil
-                            pos_settings.line_h_nudge[line_idx] = line_h_nudge ~= 0 and line_h_nudge or nil
+                            applyLivePreview()
                         end
                         self:savePositionSetting(pos.key)
                         UIManager:close(format_dialog)
