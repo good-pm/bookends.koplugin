@@ -257,6 +257,10 @@ function Bookends:onResume()
     self.session_resume_time = os.time()
     self.session_start_page = self.session_max_page
     self:markDirty()
+    -- Repaint after the footer's async resume refresh paints over us
+    UIManager:scheduleIn(1.5, function()
+        self:markDirty()
+    end)
 end
 
 function Bookends:paintTo(bb, x, y)
@@ -267,13 +271,30 @@ function Bookends:paintTo(bb, x, y)
     local screen_h = screen_size.h
 
     -- Phase 1: Expand tokens for all active positions
-    -- Join lines with \n, then expand tokens
+    -- Filter lines by page parity, join with \n, then expand tokens
+    local pageno = self.ui.view.state.page or 0
+    local is_odd_page = (pageno % 2) == 1
     local expanded = {}
+    local active_line_indices = {} -- key -> { original indices of visible lines }
     for _, pos in ipairs(self.POSITIONS) do
         if self:isPositionActive(pos.key) then
-            local lines = self.positions[pos.key].lines
-            local joined = table.concat(lines, "\n")
-            expanded[pos.key] = Tokens.expand(joined, self.ui, self:getSessionElapsed(), math.max(0, (self.session_max_page or 0) - (self.session_start_page or 0)))
+            local pos_settings = self.positions[pos.key]
+            local visible_lines = {}
+            local visible_indices = {}
+            for i, line in ipairs(pos_settings.lines) do
+                local filter = pos_settings.line_page_filter and pos_settings.line_page_filter[i]
+                if not filter
+                    or (filter == "odd" and is_odd_page)
+                    or (filter == "even" and not is_odd_page) then
+                    table.insert(visible_lines, line)
+                    table.insert(visible_indices, i)
+                end
+            end
+            if #visible_lines > 0 then
+                local joined = table.concat(visible_lines, "\n")
+                expanded[pos.key] = Tokens.expand(joined, self.ui, self:getSessionElapsed(), math.max(0, (self.session_max_page or 0) - (self.session_start_page or 0)))
+                active_line_indices[pos.key] = visible_indices
+            end
         end
     end
 
@@ -313,7 +334,8 @@ function Bookends:paintTo(bb, x, y)
         local default_font_size = self:getPositionSetting(key, "font_size")
 
         local line_configs = {}
-        for i = 1, #pos_settings.lines do
+        local indices = active_line_indices[key] or {}
+        for _, i in ipairs(indices) do
             local face_name = (pos_settings.line_font_face and pos_settings.line_font_face[i])
                 or default_face_name
             local font_size = (pos_settings.line_font_size and pos_settings.line_font_size[i])
@@ -654,11 +676,16 @@ function Bookends:buildPositionMenu(pos)
     for i, line in ipairs(lines) do
         table.insert(menu, {
             text_func = function()
-                local preview = Tokens.expandPreview(self.positions[pos.key].lines[i] or "", self.ui, self:getSessionElapsed(), math.max(0, (self.session_max_page or 0) - (self.session_start_page or 0)))
-                if #preview > 45 then
-                    preview = truncateUtf8(preview, 42)
+                local ps = self.positions[pos.key]
+                local filter = ps.line_page_filter and ps.line_page_filter[i]
+                local tag = ""
+                if filter == "odd" then tag = " [odd]"
+                elseif filter == "even" then tag = " [even]" end
+                local preview = (Tokens.expandPreview(ps.lines[i] or "", self.ui, self:getSessionElapsed(), math.max(0, (self.session_max_page or 0) - (self.session_start_page or 0))))
+                if #preview > 42 then
+                    preview = truncateUtf8(preview, 39)
                 end
-                return _("Line") .. " " .. i .. ": " .. preview
+                return _("Line") .. " " .. i .. tag .. ": " .. preview
             end,
             callback = function()
                 self:editLineString(pos, i)
@@ -895,6 +922,7 @@ function Bookends:editLineString(pos, line_idx)
     pos_settings.line_v_nudge = pos_settings.line_v_nudge or {}
     pos_settings.line_h_nudge = pos_settings.line_h_nudge or {}
     pos_settings.line_uppercase = pos_settings.line_uppercase or {}
+    pos_settings.line_page_filter = pos_settings.line_page_filter or {}
 
     -- Snapshot for cancel/restore
     local original_settings = util.tableDeepCopy(pos_settings)
@@ -905,6 +933,7 @@ function Bookends:editLineString(pos, line_idx)
     local line_v_nudge = pos_settings.line_v_nudge[line_idx] or 0
     local line_h_nudge = pos_settings.line_h_nudge[line_idx] or 0
     local line_uppercase = pos_settings.line_uppercase[line_idx] or false
+    local line_page_filter = pos_settings.line_page_filter[line_idx] -- nil = all pages
 
     -- Live preview: write current local state to settings and repaint
     local function applyLivePreview()
@@ -914,6 +943,7 @@ function Bookends:editLineString(pos, line_idx)
         pos_settings.line_v_nudge[line_idx] = line_v_nudge ~= 0 and line_v_nudge or nil
         pos_settings.line_h_nudge[line_idx] = line_h_nudge ~= 0 and line_h_nudge or nil
         pos_settings.line_uppercase[line_idx] = line_uppercase or nil
+        pos_settings.line_page_filter[line_idx] = line_page_filter
         self:markDirty()
     end
 
@@ -945,11 +975,37 @@ function Bookends:editLineString(pos, line_idx)
         end,
         callback = function() end,
     }
+    local PAGE_FILTERS = { nil, "odd", "even" }
+    local PAGE_FILTER_LABELS = {
+        [1] = _("All"),
+        [2] = _("Odd"),
+        [3] = _("Even"),
+    }
+    local page_filter_button = {
+        text_func = function()
+            if line_page_filter == "odd" then return _("Odd pg")
+            elseif line_page_filter == "even" then return _("Even pg")
+            else return _("All pg") end
+        end,
+        callback = function() end,
+    }
 
     local format_dialog
 
     case_button.callback = function()
         line_uppercase = not line_uppercase
+        applyLivePreview()
+        format_dialog:reinit()
+    end
+
+    page_filter_button.callback = function()
+        if line_page_filter == nil then
+            line_page_filter = "odd"
+        elseif line_page_filter == "odd" then
+            line_page_filter = "even"
+        else
+            line_page_filter = nil
+        end
         applyLivePreview()
         format_dialog:reinit()
     end
@@ -1066,7 +1122,7 @@ function Bookends:editLineString(pos, line_idx)
         end,
         buttons = {
             -- Row 1: style controls
-            { style_button, size_button, font_button, case_button },
+            { style_button, size_button, font_button, case_button, page_filter_button },
             -- Row 2: position nudge (L/R on left, label center, U/D on right)
             { nudge_left, nudge_right, nudge_label, nudge_up, nudge_down },
             -- Row 3: main actions
@@ -1113,6 +1169,7 @@ function Bookends:editLineString(pos, line_idx)
                             sparseRemove(pos_settings.line_v_nudge, line_idx)
                             sparseRemove(pos_settings.line_h_nudge, line_idx)
                             sparseRemove(pos_settings.line_uppercase, line_idx)
+                            sparseRemove(pos_settings.line_page_filter, line_idx)
                         else
                             -- Save the text (style/font/nudge already applied via live preview)
                             pos_settings.lines[line_idx] = new_text
@@ -1151,6 +1208,7 @@ function Bookends:showLineManageDialog(pos, line_idx, touchmenu_instance)
         sparseRemove(ps.line_v_nudge, line_idx)
         sparseRemove(ps.line_h_nudge, line_idx)
         sparseRemove(ps.line_uppercase, line_idx)
+        sparseRemove(ps.line_page_filter, line_idx)
         self:savePositionSetting(pos.key)
         self:markDirty()
         refreshMenu()
@@ -1175,6 +1233,9 @@ function Bookends:showLineManageDialog(pos, line_idx, touchmenu_instance)
         end
         if ps.line_uppercase then
             ps.line_uppercase[a], ps.line_uppercase[b] = ps.line_uppercase[b], ps.line_uppercase[a]
+        end
+        if ps.line_page_filter then
+            ps.line_page_filter[a], ps.line_page_filter[b] = ps.line_page_filter[b], ps.line_page_filter[a]
         end
         self:savePositionSetting(pos.key)
         self:markDirty()
