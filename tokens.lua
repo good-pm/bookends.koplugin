@@ -23,6 +23,7 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
             ["%T"] = "[title]", ["%A"] = "[author]",
             ["%S"] = "[series]", ["%C"] = "[chapter]",
             ["%N"] = "[file]", ["%i"] = "[lang]",
+            ["%o"] = "[format]", ["%q"] = "[highlights]", ["%Q"] = "[notes]",
             ["%r"] = "[pg/hr]", ["%E"] = "[total]",
             ["%b"] = "[batt]", ["%B"] = "[batt]", ["%W"] = "[wifi]",
             ["%f"] = "[light]", ["%F"] = "[warmth]",
@@ -173,10 +174,25 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
 
     -- File name (without path and extension)
     local file_name = ""
-    if needs("N") then
+    local doc_format = ""
+    if needs("N", "o") then
         local filepath = doc.file or ""
-        file_name = filepath:match("([^/]+)$") or ""
-        file_name = (file_name:gsub("%.[^.]+$", ""))
+        if needs("N") then
+            file_name = filepath:match("([^/]+)$") or ""
+            file_name = (file_name:gsub("%.[^.]+$", ""))
+        end
+        if needs("o") then
+            doc_format = (filepath:match("%.([^.]+)$") or ""):upper()
+        end
+    end
+
+    -- Highlights and notes count
+    local highlights_count = ""
+    local notes_count = ""
+    if needs("q", "Q") and ui.annotation then
+        local h, n = ui.annotation:getNumberOfHighlightsAndNotes()
+        if needs("q") then highlights_count = tostring(h or 0) end
+        if needs("Q") then notes_count = tostring(n or 0) end
     end
 
     -- Reading speed and total book time (via statistics plugin)
@@ -285,6 +301,9 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         ["%C"] = tostring(chapter_title),
         ["%N"] = file_name,
         ["%i"] = book_language,
+        ["%o"] = doc_format,
+        ["%q"] = highlights_count,
+        ["%Q"] = notes_count,
         -- Statistics
         ["%r"] = reading_speed,
         ["%E"] = total_book_time,

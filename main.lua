@@ -168,7 +168,9 @@ function Bookends:loadPreset(preset)
         G_reader_settings:saveSetting("bookends_enabled", self.enabled)
     end
     if preset.defaults then
-        self.defaults = util.tableDeepCopy(preset.defaults)
+        for k, v in pairs(preset.defaults) do
+            self.defaults[k] = v
+        end
         G_reader_settings:saveSetting("bookends_font_face", self.defaults.font_face)
         G_reader_settings:saveSetting("bookends_font_size", self.defaults.font_size)
         G_reader_settings:saveSetting("bookends_font_bold", self.defaults.font_bold)
@@ -918,31 +920,32 @@ Bookends.BUILT_IN_PRESETS = {
                     "Author: %A",
                     "Series: %S",
                     "Chapter: %C",
-                    "File: %N \xC2\xB7 Lang: %i",
-                }, line_font_size = { [1] = 10, [2] = 10, [3] = 10, [4] = 10, [5] = 10 } },
+                }, line_font_size = { [1] = 10, [2] = 10, [3] = 10, [4] = 10 } },
                 tc = { lines = {
                     "12h: %k \xC2\xB7 24h: %K",
-                    "Date: %d \xC2\xB7 %D",
-                    "%n \xC2\xB7 %w \xC2\xB7 %a",
+                    "Short: %d \xC2\xB7 Long: %D",
+                    "Numeric: %n \xC2\xB7 Day: %w \xC2\xB7 %a",
                 }, line_font_size = { [1] = 10, [2] = 10, [3] = 10 } },
                 tr = { lines = {
                     "%B Batt: %b \xC2\xB7 %W",
-                    "Light: %f \xC2\xB7 Warm: %F",
+                    "Light: %f \xC2\xB7 Warmth: %F",
                     "RAM: %m",
                 }, line_font_size = { [1] = 10, [2] = 10, [3] = 10 } },
                 bl = { lines = {
-                    "Session: %R \xC2\xB7 %s pg",
+                    "Session: %R \xC2\xB7 %s pages",
                     "Book total: %E",
-                    "Speed: %r pg/hr",
-                    "Left: %h ch \xC2\xB7 %H book",
+                    "Speed: %r pages/hr",
+                    "Ch time left: %h \xC2\xB7 Book: %H",
                 }, line_font_size = { [1] = 10, [2] = 10, [3] = 10, [4] = 10 }, v_offset = 16 },
                 bc = { lines = {
                     "Page %c of %t (%p)",
                 }, line_font_size = { [1] = 10 }, v_offset = 35 },
                 br = { lines = {
-                    "Ch: %g/%G (%P)",
-                    "Left: %l ch \xC2\xB7 %L book",
-                }, line_font_size = { [1] = 10, [2] = 10 }, v_offset = 14 },
+                    "Ch page: %g/%G (%P)",
+                    "Ch left: %l \xC2\xB7 Book left: %L",
+                    "File: %N \xC2\xB7 Lang: %i",
+                    "%o \xC2\xB7 Highlights: %q \xC2\xB7 Notes: %Q",
+                }, line_font_size = { [1] = 10, [2] = 10, [3] = 10, [4] = 10 }, v_offset = 14 },
             },
         },
     },
@@ -1454,6 +1457,9 @@ Bookends.TOKEN_CATALOG = {
         { "%C", _("Chapter title") },
         { "%N", _("File name") },
         { "%i", _("Book language") },
+        { "%o", _("Document format (EPUB, PDF, etc.)") },
+        { "%q", _("Number of highlights") },
+        { "%Q", _("Number of notes") },
     }},
     { _("Page / Progress"), {
         { "%c", _("Current page number") },
