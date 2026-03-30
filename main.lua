@@ -323,6 +323,7 @@ Bookends.onCharging               = Bookends.delayedRepaint
 Bookends.onNotCharging            = Bookends.delayedRepaint
 Bookends.onNetworkConnected       = Bookends.delayedRepaint
 Bookends.onNetworkDisconnected    = Bookends.delayedRepaint
+Bookends.onAnnotationsModified = Bookends.delayedRepaint
 function Bookends:getSessionElapsed()
     local elapsed = self.session_elapsed or 0
     if self.session_resume_time then
@@ -373,9 +374,21 @@ function Bookends:paintTo(bb, x, y)
                 end
             end
             if #visible_lines > 0 then
-                local joined = table.concat(visible_lines, "\n")
-                expanded[pos.key] = Tokens.expand(joined, self.ui, self:getSessionElapsed(), math.max(0, (self.session_max_page or 0) - (self.session_start_page or 0)))
-                active_line_indices[pos.key] = visible_indices
+                local session_elapsed = self:getSessionElapsed()
+                local session_pages = math.max(0, (self.session_max_page or 0) - (self.session_start_page or 0))
+                local expanded_lines = {}
+                local final_indices = {}
+                for j, line in ipairs(visible_lines) do
+                    local result, is_empty = Tokens.expand(line, self.ui, session_elapsed, session_pages)
+                    if not is_empty then
+                        table.insert(expanded_lines, result)
+                        table.insert(final_indices, visible_indices[j])
+                    end
+                end
+                if #expanded_lines > 0 then
+                    expanded[pos.key] = table.concat(expanded_lines, "\n")
+                    active_line_indices[pos.key] = final_indices
+                end
             end
         end
     end
@@ -852,100 +865,55 @@ end
 
 Bookends.BUILT_IN_PRESETS = {
     {
-        name = _("Minimal"),
-        preset = {
-            enabled = true,
-            positions = {
-                tl = { lines = {} },
-                tc = { lines = {} },
-                tr = { lines = {} },
-                bl = { lines = {} },
-                bc = { lines = { "Page %c of %t" }, line_font_size = { [1] = 16 }, v_offset = 35 },
-                br = { lines = {} },
-            },
-        },
-    },
-    {
-        name = _("Full status"),
+        name = _("Speed reader"),
         preset = {
             enabled = true,
             defaults = {
                 v_offset = 10,
             },
             positions = {
-                tl = { lines = { "%A \xE2\x8B\xAE %T" }, line_font_size = { [1] = 12 } },
-                tc = { lines = { "%k  %a %d" }, line_font_size = { [1] = 14 }, line_style = { [1] = "bold" } },
-                tr = { lines = { "%C" }, line_style = { [1] = "italic" } },
-                bl = { lines = { "\xE2\x8F\xB3 %R \xE2\x80\xBA %s page session" }, v_offset = 16 },
-                bc = { lines = { "Page %c of %t" }, line_font_size = { [1] = 18 }, v_offset = 40, line_v_nudge = { [1] = -15 } },
-                br = { lines = { "%B", "%W", "%f \xE2\x98\xBC", "%F" }, v_offset = 20 },
+                tl = { lines = { "%k" }, line_font_size = { [1] = 16 } },
+                tc = { lines = { "\xE2\x8F\xB3 %R \xC2\xB7 %s page(s) read this session" }, line_font_size = { [1] = 16 } },
+                tr = { lines = { "%B %b" }, line_font_size = { [1] = 16 } },
+                bl = { lines = { " %E reading this book" }, v_offset = 16 },
+                bc = { lines = { "Page %c of %t", " %r page(s)/hr  %H left in book" },
+                    line_font_size = { [1] = 18 }, line_style = { [1] = "italic", [2] = "bold" },
+                    line_v_nudge = { [1] = -14 }, v_offset = 16 },
+                br = { lines = { "%l page(s) / %h left in chapter" }, line_font_size = { [1] = 12 }, v_offset = 16 },
             },
         },
     },
     {
-        name = _("Book info"),
+        name = _("Classic alternating"),
         preset = {
             enabled = true,
+            defaults = {
+                v_offset = 10,
+            },
             positions = {
-                tl = { lines = {} },
-                tc = { lines = { "%T", "%A" }, line_style = { [1] = "bold", [2] = "italic" }, line_font_size = { [2] = 11 } },
-                tr = { lines = {} },
+                tl = { lines = { "%T" }, line_font_size = { [1] = 18 }, line_style = { [1] = "bolditalic" }, line_page_filter = { [1] = "even" } },
+                tc = { lines = {} },
+                tr = { lines = { "%C" }, line_font_size = { [1] = 18 }, line_style = { [1] = "bolditalic" }, line_page_filter = { [1] = "odd" } },
                 bl = { lines = {} },
-                bc = { lines = { "%c / %t (%p)" }, v_offset = 35 },
+                bc = { lines = { "%c" }, line_font_size = { [1] = 18 }, v_offset = 40 },
                 br = { lines = {} },
             },
         },
     },
     {
-        name = _("Chapter focus"),
+        name = _("Rich detail"),
         preset = {
             enabled = true,
-            positions = {
-                tl = { lines = {} },
-                tc = { lines = { "%C" }, line_style = { [1] = "bold" } },
-                tr = { lines = {} },
-                bl = { lines = { "%g / %G (%P)" } },
-                bc = { lines = { "Page %c of %t" }, v_offset = 35 },
-                br = { lines = { "%h left" } },
+            defaults = {
+                v_offset = 10,
             },
-        },
-    },
-    {
-        name = _("Token test"),
-        preset = {
-            enabled = true,
             positions = {
-                tl = { lines = {
-                    "Title: %T",
-                    "Author: %A",
-                    "Series: %S",
-                    "Chapter: %C",
-                }, line_font_size = { [1] = 10, [2] = 10, [3] = 10, [4] = 10 } },
-                tc = { lines = {
-                    "12h: %k \xC2\xB7 24h: %K",
-                    "Short: %d \xC2\xB7 Long: %D",
-                    "Numeric: %n \xC2\xB7 Day: %w \xC2\xB7 %a",
-                }, line_font_size = { [1] = 10, [2] = 10, [3] = 10 } },
-                tr = { lines = {
-                    "%B Batt: %b \xC2\xB7 %W",
-                    "Light: %f \xC2\xB7 Warmth: %F",
-                    "RAM: %m",
-                }, line_font_size = { [1] = 10, [2] = 10, [3] = 10 } },
-                bl = { lines = {
-                    "Session: %R \xC2\xB7 %s pages",
-                    "Book total: %E",
-                    "Speed: %r pages/hr",
-                    "Ch time left: %h \xC2\xB7 Book: %H",
-                }, line_font_size = { [1] = 10, [2] = 10, [3] = 10, [4] = 10 }, v_offset = 16 },
-                bc = { lines = {
-                    "Page %c of %t (%p)",
-                }, line_font_size = { [1] = 10 }, v_offset = 35 },
-                br = { lines = {
-                    "Ch page: %g/%G (%P)",
-                    "Ch left: %l \xC2\xB7 Book left: %L",
-                    "File: %N \xC2\xB7 Lang: %i",
-                    "%o \xC2\xB7 Highlights: %q \xC2\xB7 Notes: %Q",
-                }, line_font_size = { [1] = 10, [2] = 10, [3] = 10, [4] = 10 }, v_offset = 14 },
+                tl = { lines = { "%A \xE2\x8B\xAE %T", " %q highlight(s)" }, line_font_size = { [1] = 12 } },
+                tc = { lines = { "%k \xC2\xB7 %a %d" }, line_font_size = { [1] = 14 }, line_style = { [1] = "bold" } },
+                tr = { lines = { "%C" } },
+                bl = { lines = { "\xE2\x8F\xB3 %R \xE2\x80\xBA %s page session" }, v_offset = 16 },
+                bc = { lines = { "Page %c of %t" }, line_font_size = { [1] = 18 }, v_offset = 50 },
+                br = { lines = { "%B", "%W", "%F", "%f \xE2\x98\xBC" }, v_offset = 20 },
             },
         },
     },
@@ -1460,6 +1428,7 @@ Bookends.TOKEN_CATALOG = {
         { "%o", _("Document format (EPUB, PDF, etc.)") },
         { "%q", _("Number of highlights") },
         { "%Q", _("Number of notes") },
+        { "%x", _("Number of bookmarks") },
     }},
     { _("Page / Progress"), {
         { "%c", _("Current page number") },

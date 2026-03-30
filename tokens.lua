@@ -23,7 +23,7 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
             ["%T"] = "[title]", ["%A"] = "[author]",
             ["%S"] = "[series]", ["%C"] = "[chapter]",
             ["%N"] = "[file]", ["%i"] = "[lang]",
-            ["%o"] = "[format]", ["%q"] = "[highlights]", ["%Q"] = "[notes]",
+            ["%o"] = "[format]", ["%q"] = "[highlights]", ["%Q"] = "[notes]", ["%x"] = "[bookmarks]",
             ["%r"] = "[pg/hr]", ["%E"] = "[total]",
             ["%b"] = "[batt]", ["%B"] = "[batt]", ["%W"] = "[wifi]",
             ["%f"] = "[light]", ["%F"] = "[warmth]",
@@ -189,10 +189,18 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
     -- Highlights and notes count
     local highlights_count = ""
     local notes_count = ""
-    if needs("q", "Q") and ui.annotation then
+    local bookmarks_count = ""
+    if needs("q", "Q", "x") and ui.annotation then
         local h, n = ui.annotation:getNumberOfHighlightsAndNotes()
         if needs("q") then highlights_count = tostring(h or 0) end
         if needs("Q") then notes_count = tostring(n or 0) end
+        if needs("x") then
+            local bm = 0
+            for _, item in ipairs(ui.annotation.annotations or {}) do
+                if not item.drawer then bm = bm + 1 end
+            end
+            bookmarks_count = tostring(bm)
+        end
     end
 
     -- Reading speed and total book time (via statistics plugin)
@@ -304,6 +312,7 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         ["%o"] = doc_format,
         ["%q"] = highlights_count,
         ["%Q"] = notes_count,
+        ["%x"] = bookmarks_count,
         -- Statistics
         ["%r"] = reading_speed,
         ["%E"] = total_book_time,
@@ -315,7 +324,26 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         ["%F"] = fl_warmth,
         ["%m"] = tostring(mem_usage),
     }
-    return format_str:gsub("(%%%a)", replace)
+    -- Track whether all tokens in the string resolved to empty or "0"
+    local has_token = false
+    local all_empty = true
+    local result = format_str:gsub("(%%%a)", function(token)
+        local val = replace[token]
+        if val == nil then return token end -- unknown token, leave as-is
+        has_token = true
+        if val ~= "" and val ~= "0" then
+            all_empty = false
+        end
+        return val
+    end)
+
+    -- Handle (s) pluralisation: "1 highlight(s)" -> "1 highlight", "3 highlight(s)" -> "3 highlights"
+    result = result:gsub("(%d+)(.-)%(s%)", function(num, between)
+        return num == "1" and num .. between or num .. between .. "s"
+    end)
+
+    local is_empty = has_token and all_empty
+    return result, is_empty
 end
 
 function Tokens.expandPreview(format_str, ui, session_elapsed, session_pages_read)
