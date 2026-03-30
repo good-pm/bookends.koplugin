@@ -218,13 +218,62 @@ Bookends.STYLE_LABELS = {
     bolditalic = _("Bold Italic"),
 }
 
--- Map a regular font filename to its italic variant (and vice versa)
-local _italic_variants = {
-    ["NotoSans-Regular.ttf"]  = "NotoSans-Italic.ttf",
-    ["NotoSans-Bold.ttf"]     = "NotoSans-BoldItalic.ttf",
-    ["NotoSerif-Regular.ttf"] = "NotoSerif-Italic.ttf",
-    ["NotoSerif-Bold.ttf"]    = "NotoSerif-BoldItalic.ttf",
-}
+-- Cache for italic font variant lookups
+local _italic_cache = {}
+
+-- Find the italic variant of a font by searching for common naming patterns
+local function findItalicVariant(face_name)
+    if _italic_cache[face_name] ~= nil then
+        return _italic_cache[face_name] -- may be false (no variant found)
+    end
+
+    local ok, FontList = pcall(require, "fontlist")
+    if not ok then
+        _italic_cache[face_name] = false
+        return false
+    end
+    local all_fonts = FontList:getFontList()
+
+    -- Extract the directory and base name without extension
+    local dir = face_name:match("^(.*/)") or ""
+    local basename = face_name:match("([^/]+)$") or face_name
+    local name_no_ext = (basename:gsub("%.[^.]+$", ""))
+
+    -- Common patterns: "Regular" -> "Italic", "Bold" -> "BoldItalic",
+    -- or just append "Italic" / "-Italic" / " Italic"
+    local candidates = {}
+    -- Replace Regular/regular with Italic/italic
+    if name_no_ext:match("[Rr]egular") then
+        table.insert(candidates, (name_no_ext:gsub("[Rr]egular", "Italic")))
+        table.insert(candidates, (name_no_ext:gsub("[Rr]egular", "italic")))
+    end
+    -- Replace Bold with BoldItalic
+    if name_no_ext:match("[Bb]old") and not name_no_ext:match("[Ii]talic") then
+        table.insert(candidates, (name_no_ext:gsub("[Bb]old", "BoldItalic")))
+        table.insert(candidates, (name_no_ext:gsub("[Bb]old", "Bolditalic")))
+    end
+    -- Append -Italic, Italic, _Italic, " Italic"
+    table.insert(candidates, name_no_ext .. "-Italic")
+    table.insert(candidates, name_no_ext .. "Italic")
+    table.insert(candidates, name_no_ext .. " Italic")
+    table.insert(candidates, name_no_ext .. "-italic")
+
+    -- Search available fonts
+    for _, candidate in ipairs(candidates) do
+        local pattern = candidate:lower()
+        for _, font_path in ipairs(all_fonts) do
+            local font_name = font_path:match("([^/]+)$") or ""
+            local font_no_ext = font_name:gsub("%.[^.]+$", "")
+            if font_no_ext:lower() == pattern then
+                _italic_cache[face_name] = font_path
+                return font_path
+            end
+        end
+    end
+
+    _italic_cache[face_name] = false
+    return false
+end
 
 function Bookends:resolveLineConfig(face_name, font_size, style)
     style = style or "regular"
@@ -232,8 +281,7 @@ function Bookends:resolveLineConfig(face_name, font_size, style)
     local resolved_face = face_name
 
     if style == "italic" or style == "bolditalic" then
-        -- Try to find italic variant
-        local italic = _italic_variants[face_name]
+        local italic = findItalicVariant(face_name)
         if italic then
             resolved_face = italic
         end
@@ -261,6 +309,18 @@ end
 function Bookends:onPosUpdate() self:markDirty() end
 function Bookends:onReaderFooterVisibilityChange() self:markDirty() end
 function Bookends:onSetDimensions() self:markDirty() end
+
+-- Repaint after events that cause the footer to refresh over us
+function Bookends:delayedRepaint()
+    UIManager:nextTick(function()
+        self:markDirty()
+    end)
+end
+Bookends.onFrontlightStateChanged = Bookends.delayedRepaint
+Bookends.onCharging               = Bookends.delayedRepaint
+Bookends.onNotCharging            = Bookends.delayedRepaint
+Bookends.onNetworkConnected       = Bookends.delayedRepaint
+Bookends.onNetworkDisconnected    = Bookends.delayedRepaint
 function Bookends:getSessionElapsed()
     local elapsed = self.session_elapsed or 0
     if self.session_resume_time then
