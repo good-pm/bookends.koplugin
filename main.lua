@@ -174,7 +174,17 @@ function Bookends:loadPreset(preset)
         G_reader_settings:saveSetting("bookends_enabled", self.enabled)
     end
     if preset.defaults then
-        for k, v in pairs(preset.defaults) do
+        -- Migrate old v_offset/h_offset to margins if no margin keys present
+        local pd = preset.defaults
+        if pd.v_offset and not pd.margin_top then
+            pd.margin_top = pd.v_offset
+            pd.margin_bottom = pd.v_offset
+        end
+        if pd.h_offset and not pd.margin_left then
+            pd.margin_left = pd.h_offset
+            pd.margin_right = pd.h_offset
+        end
+        for k, v in pairs(pd) do
             self.defaults[k] = v
         end
         G_reader_settings:saveSetting("bookends_font_face", self.defaults.font_face)
@@ -883,22 +893,22 @@ Bookends.BUILT_IN_PRESETS = {
 }
 
 function Bookends:buildPresetsMenu()
-    local Presets = require("ui/presets")
-
-
-
-    -- Start with the standard user preset menu
-    local items = Presets.genPresetMenuItemTable(self.preset_obj)
-
-    -- Add built-in presets section before user presets (after the "Create" item)
-    local builtin_items = {
+    local items = {
         {
-            text = "\xE2\x94\x80\xE2\x94\x80 " .. _("Built-in") .. " \xE2\x94\x80\xE2\x94\x80",
+            text = _("Built-in presets"),
             enabled_func = function() return false end,
+            separator = true,
         },
     }
-    for _i, bp in ipairs(self.BUILT_IN_PRESETS) do
-        table.insert(builtin_items, {
+
+    -- Built-in presets (sorted alphabetically)
+    local sorted_builtins = {}
+    for _, bp in ipairs(self.BUILT_IN_PRESETS) do
+        table.insert(sorted_builtins, bp)
+    end
+    table.sort(sorted_builtins, function(a, b) return a.name < b.name end)
+    for _, bp in ipairs(sorted_builtins) do
+        table.insert(items, {
             text = bp.name,
             keep_menu_open = true,
             callback = function()
@@ -910,19 +920,21 @@ function Bookends:buildPresetsMenu()
             end,
         })
     end
+    items[#items].separator = true
 
-    -- Insert built-in items after position 1 (the "Create new" item)
-    for i = #builtin_items, 1, -1 do
-        table.insert(items, 2, builtin_items[i])
-    end
-
-    -- Add separator before user presets if there are any
-    if #self.preset_obj.presets > 0 or next(self.preset_obj.presets) then
-        table.insert(items, 2 + #builtin_items, {
-            text = "\xE2\x94\x80\xE2\x94\x80 " .. _("Your presets") .. " (" .. _("long press to edit") .. ") \xE2\x94\x80\xE2\x94\x80",
-            enabled_func = function() return false end,
-        })
-    end
+    -- Custom presets submenu (fully managed by Presets module)
+    table.insert(items, {
+        text = _("Custom presets"),
+        sub_item_table_func = function()
+            local Presets = require("ui/presets")
+            local user_items = Presets.genPresetMenuItemTable(self.preset_obj)
+            table.insert(user_items, {
+                text = _("Long press presets to edit"),
+                enabled_func = function() return false end,
+            })
+            return user_items
+        end,
+    })
 
     return items
 end
@@ -1739,8 +1751,8 @@ function Bookends:showNudgeDialog(pos, field, label)
     local dialog
 
     local function nudge(delta)
-        local val = (pos_settings[field] or 0) + delta
-        pos_settings[field] = math.max(0, val)
+        local val = math.max(0, (pos_settings[field] or 0) + delta)
+        pos_settings[field] = val > 0 and val or nil
         self:markDirty()
         dialog:reinit()
     end
