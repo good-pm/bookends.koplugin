@@ -63,6 +63,7 @@ Bookends.POSITIONS = {
 }
 
 function Bookends:init()
+    self:openSettings()
     self:loadSettings()
     self.ui.menu:registerToMainMenu(self)
     self.ui.view:registerViewModule("bookends", self)
@@ -76,7 +77,7 @@ function Bookends:init()
     -- Preset system
     local Presets = require("ui/presets")
     self.preset_obj = {
-        presets = G_reader_settings:readSetting("bookends_presets", {}),
+        presets = self.settings:readSetting("presets", {}),
         dispatcher_name = "load_bookends_preset",
         buildPreset = function() return self:buildPreset() end,
         loadPreset = function(preset) self:loadPreset(preset) end,
@@ -112,14 +113,14 @@ end
 
 function Bookends:onToggleBookends()
     self.enabled = not self.enabled
-    G_reader_settings:saveSetting("bookends_enabled", self.enabled)
+    self.settings:saveSetting("enabled", self.enabled)
     self:markDirty()
     return true
 end
 
 function Bookends:onSetBookends(new_state)
     self.enabled = new_state
-    G_reader_settings:saveSetting("bookends_enabled", self.enabled)
+    self.settings:saveSetting("enabled", self.enabled)
     self:markDirty()
     return true
 end
@@ -133,7 +134,7 @@ function Bookends:onCycleBookendsPreset()
     if #names == 0 then return true end
     table.sort(names)
     local idx = 1
-    local last = G_reader_settings:readSetting("bookends_last_cycled_preset")
+    local last = self.settings:readSetting("last_cycled_preset")
     if last then
         for i, name in ipairs(names) do
             if name == last then
@@ -142,27 +143,59 @@ function Bookends:onCycleBookendsPreset()
             end
         end
     end
-    G_reader_settings:saveSetting("bookends_last_cycled_preset", names[idx])
+    self.settings:saveSetting("last_cycled_preset", names[idx])
     self:loadPreset(presets[names[idx]])
     self:markDirty()
     return true
 end
 
+function Bookends:openSettings()
+    local DataStorage = require("datastorage")
+    local LuaSettings = require("luasettings")
+    local settings_path = DataStorage:getSettingsDir() .. "/bookends.lua"
+    self.settings = LuaSettings:open(settings_path)
+
+    -- One-time migration from G_reader_settings
+    if not self.settings:has("migrated") then
+        local old_keys = {
+            "enabled", "font_face", "font_size", "font_bold", "font_scale",
+            "margin_top", "margin_bottom", "margin_left", "margin_right",
+            "overlap_gap", "truncation_priority", "presets", "last_cycled_preset",
+        }
+        for _, key in ipairs(old_keys) do
+            local val = G_reader_settings:readSetting("bookends_" .. key)
+            if val ~= nil then
+                self.settings:saveSetting(key, val)
+                G_reader_settings:delSetting("bookends_" .. key)
+            end
+        end
+        for _, pos in ipairs(self.POSITIONS) do
+            local val = G_reader_settings:readSetting("bookends_pos_" .. pos.key)
+            if val ~= nil then
+                self.settings:saveSetting("pos_" .. pos.key, val)
+                G_reader_settings:delSetting("bookends_pos_" .. pos.key)
+            end
+        end
+        self.settings:saveSetting("migrated", true)
+        self.settings:flush()
+    end
+end
+
 function Bookends:loadSettings()
     local footer_settings = self.ui.view.footer.settings
-    self.enabled = G_reader_settings:readSetting("bookends_enabled", false)
+    self.enabled = self.settings:readSetting("enabled", false)
 
     self.defaults = {
-        font_face = G_reader_settings:readSetting("bookends_font_face", Font.fontmap["ffont"]),
-        font_size = G_reader_settings:readSetting("bookends_font_size", footer_settings.text_font_size),
-        font_bold = G_reader_settings:readSetting("bookends_font_bold", false),
-        margin_top    = G_reader_settings:readSetting("bookends_margin_top", 10),
-        margin_bottom = G_reader_settings:readSetting("bookends_margin_bottom", 25),
-        margin_left   = G_reader_settings:readSetting("bookends_margin_left", 18),
-        margin_right  = G_reader_settings:readSetting("bookends_margin_right", 18),
-        font_scale = G_reader_settings:readSetting("bookends_font_scale", 100),
-        overlap_gap = G_reader_settings:readSetting("bookends_overlap_gap", 50),
-        truncation_priority = G_reader_settings:readSetting("bookends_truncation_priority", "center"),
+        font_face = self.settings:readSetting("font_face", Font.fontmap["ffont"]),
+        font_size = self.settings:readSetting("font_size", footer_settings.text_font_size),
+        font_bold = self.settings:readSetting("font_bold", false),
+        margin_top    = self.settings:readSetting("margin_top", 10),
+        margin_bottom = self.settings:readSetting("margin_bottom", 25),
+        margin_left   = self.settings:readSetting("margin_left", 18),
+        margin_right  = self.settings:readSetting("margin_right", 18),
+        font_scale = self.settings:readSetting("font_scale", 100),
+        overlap_gap = self.settings:readSetting("overlap_gap", 50),
+        truncation_priority = self.settings:readSetting("truncation_priority", "center"),
     }
 
     -- Default position configurations (used on first run)
@@ -178,7 +211,7 @@ function Bookends:loadSettings()
     -- Per-position settings
     self.positions = {}
     for _, pos in ipairs(self.POSITIONS) do
-        local saved = G_reader_settings:readSetting("bookends_pos_" .. pos.key)
+        local saved = self.settings:readSetting("pos_" .. pos.key)
         if saved then
             -- Migration: old format string → lines array
             if saved.format and saved.format ~= "" and not saved.lines then
@@ -213,7 +246,7 @@ function Bookends:loadPreset(preset)
 
     if preset.enabled ~= nil then
         self.enabled = preset.enabled
-        G_reader_settings:saveSetting("bookends_enabled", self.enabled)
+        self.settings:saveSetting("enabled", self.enabled)
     end
     if preset.defaults then
         local pd = preset.defaults
@@ -228,16 +261,16 @@ function Bookends:loadPreset(preset)
         for k, v in pairs(pd) do
             self.defaults[k] = v
         end
-        G_reader_settings:saveSetting("bookends_font_face", self.defaults.font_face)
-        G_reader_settings:saveSetting("bookends_font_size", self.defaults.font_size)
-        G_reader_settings:saveSetting("bookends_font_bold", self.defaults.font_bold)
-        G_reader_settings:saveSetting("bookends_font_scale", self.defaults.font_scale)
-        G_reader_settings:saveSetting("bookends_margin_top", self.defaults.margin_top)
-        G_reader_settings:saveSetting("bookends_margin_bottom", self.defaults.margin_bottom)
-        G_reader_settings:saveSetting("bookends_margin_left", self.defaults.margin_left)
-        G_reader_settings:saveSetting("bookends_margin_right", self.defaults.margin_right)
-        G_reader_settings:saveSetting("bookends_overlap_gap", self.defaults.overlap_gap)
-        G_reader_settings:saveSetting("bookends_truncation_priority", self.defaults.truncation_priority)
+        self.settings:saveSetting("font_face", self.defaults.font_face)
+        self.settings:saveSetting("font_size", self.defaults.font_size)
+        self.settings:saveSetting("font_bold", self.defaults.font_bold)
+        self.settings:saveSetting("font_scale", self.defaults.font_scale)
+        self.settings:saveSetting("margin_top", self.defaults.margin_top)
+        self.settings:saveSetting("margin_bottom", self.defaults.margin_bottom)
+        self.settings:saveSetting("margin_left", self.defaults.margin_left)
+        self.settings:saveSetting("margin_right", self.defaults.margin_right)
+        self.settings:saveSetting("overlap_gap", self.defaults.overlap_gap)
+        self.settings:saveSetting("truncation_priority", self.defaults.truncation_priority)
     end
     if preset.positions then
         for _, pos in ipairs(self.POSITIONS) do
@@ -251,7 +284,7 @@ function Bookends:loadPreset(preset)
 end
 
 function Bookends:savePositionSetting(key)
-    G_reader_settings:saveSetting("bookends_pos_" .. key, self.positions[key])
+    self.settings:saveSetting("pos_" .. key, self.positions[key])
 end
 
 function Bookends:getPositionSetting(key, field)
@@ -616,6 +649,15 @@ function Bookends:onCloseWidget()
         OverlayWidget.freeWidgets(self.widget_cache)
         self.widget_cache = nil
     end
+    if self.settings then
+        self.settings:flush()
+    end
+end
+
+function Bookends:onFlushSettings()
+    if self.settings then
+        self.settings:flush()
+    end
 end
 
 function Bookends:startRefreshTimer()
@@ -656,7 +698,7 @@ function Bookends:buildMainMenu()
             end,
             callback = function()
                 self.enabled = not self.enabled
-                G_reader_settings:saveSetting("bookends_enabled", self.enabled)
+                self.settings:saveSetting("enabled", self.enabled)
                 self:markDirty()
             end,
         },
@@ -725,7 +767,7 @@ function Bookends:buildMainMenu()
                     sub_item_table = self:buildFontMenu(function() return self.defaults.font_face end,
                         function(face)
                             self.defaults.font_face = face
-                            G_reader_settings:saveSetting("bookends_font_face", face)
+                            self.settings:saveSetting("font_face", face)
                             self:markDirty()
                         end),
                 },
@@ -755,7 +797,7 @@ function Bookends:buildMainMenu()
                         self:showSpinner(_("Truncation gap between regions (px)"), self.defaults.overlap_gap, 0, 999, 50,
                             function(val)
                                 self.defaults.overlap_gap = val
-                                G_reader_settings:saveSetting("bookends_overlap_gap", val)
+                                self.settings:saveSetting("overlap_gap", val)
                                 self:markDirty()
                                 if touchmenu_instance then touchmenu_instance:updateItems() end
                             end)
@@ -773,7 +815,7 @@ function Bookends:buildMainMenu()
                         else
                             self.defaults.truncation_priority = "sides"
                         end
-                        G_reader_settings:saveSetting("bookends_truncation_priority", self.defaults.truncation_priority)
+                        self.settings:saveSetting("truncation_priority", self.defaults.truncation_priority)
                         self:markDirty()
                     end,
                     separator = true,
@@ -1912,7 +1954,7 @@ function Bookends:showFontScaleDialog()
                     text = _("Save"),
                     is_enter_default = true,
                     callback = function()
-                        G_reader_settings:saveSetting("bookends_font_scale", self.defaults.font_scale)
+                        self.settings:saveSetting("font_scale", self.defaults.font_scale)
                         UIManager:close(dialog)
                     end,
                 },
@@ -1981,10 +2023,10 @@ function Bookends:showMarginAdjuster(touchmenu_instance)
                 text = _("Save"),
                 is_enter_default = true,
                 callback = function()
-                    G_reader_settings:saveSetting("bookends_margin_top", self.defaults.margin_top)
-                    G_reader_settings:saveSetting("bookends_margin_bottom", self.defaults.margin_bottom)
-                    G_reader_settings:saveSetting("bookends_margin_left", self.defaults.margin_left)
-                    G_reader_settings:saveSetting("bookends_margin_right", self.defaults.margin_right)
+                    self.settings:saveSetting("margin_top", self.defaults.margin_top)
+                    self.settings:saveSetting("margin_bottom", self.defaults.margin_bottom)
+                    self.settings:saveSetting("margin_left", self.defaults.margin_left)
+                    self.settings:saveSetting("margin_right", self.defaults.margin_right)
                     UIManager:close(margin_dialog)
                 end,
             },
