@@ -29,19 +29,25 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
             ["%f"] = "[light]", ["%F"] = "[warmth]",
             ["%m"] = "[mem]", ["%M"] = "[rss]",
             ["%v"] = "[disk]",
+            ["%bar"] = "[\xE2\x96\xB6\xE2\x96\xB6]",  -- ▶▶
         }
-        return format_str:gsub("(%%%a)", preview)
+        local r = format_str:gsub("%%bar", preview["%bar"])
+        r = r:gsub("(%%%a)", preview)
+        return r
     end
 
-    -- Helper: check if any of the given tokens appear in the format string
+    -- Helper: check if any of the given single-char tokens appear in the format string.
+    -- Uses word boundary to avoid %bar matching %b.
     local function needs(...)
         for i = 1, select("#", ...) do
-            if format_str:find("%%" .. select(i, ...)) then
+            if format_str:find("%%" .. select(i, ...) .. "[^%a]") or format_str:match("%%" .. select(i, ...) .. "$") then
                 return true
             end
         end
         return false
     end
+
+    local has_bar = format_str:find("%%bar") ~= nil
 
     local pageno = ui.view.state.page
     local doc = ui.document
@@ -93,6 +99,105 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         if left then chapter_pages_left = left end
         local title = ui.toc:getTocTitleByPage(pageno)
         if title and title ~= "" then chapter_title = title end
+    end
+
+    -- Bar token data (parallel channel — not embedded in text)
+    -- Bar token data: compute both book and chapter, caller picks via per-line setting
+    local bar_info = nil
+    if has_bar then
+        local bar_pageno = pageno or 0
+        local bar_doc = doc
+        local is_cre = ui.rolling ~= nil
+        bar_info = {}
+
+        -- Book progress
+        local book_pct
+        if is_cre and bar_doc.getCurrentPos then
+            local pos = bar_doc:getCurrentPos()
+            local height = bar_doc.info and bar_doc.info.doc_height or 0
+            if height > 0 then
+                book_pct = math.max(0, math.min(1, pos / height))
+            end
+        else
+            local raw_total = bar_doc:getPageCount()
+            if raw_total and raw_total > 0 then
+                if bar_doc:hasHiddenFlows() then
+                    local flow = bar_doc:getPageFlow(bar_pageno)
+                    local flow_total = bar_doc:getTotalPagesInFlow(flow)
+                    local flow_page = bar_doc:getPageNumberInFlow(bar_pageno)
+                    book_pct = flow_total > 0 and (flow_page / flow_total) or 0
+                else
+                    book_pct = bar_pageno / raw_total
+                end
+            end
+        end
+
+        -- Chapter tick positions as {fraction, width} pairs
+        local ticks = {}
+        local raw_total = bar_doc:getPageCount()
+        if raw_total and raw_total > 0 and ui.toc then
+            local toc_ticks = ui.toc:getTocTicks() or {}
+            local max_depth = ui.toc:getMaxDepth() or 1
+            for depth, pages in ipairs(toc_ticks) do
+                local tick_w = math.max(1, max_depth - depth + 1)
+                for _, page in ipairs(pages) do
+                    if page > 1 then
+                        local tick_frac
+                        if is_cre and bar_doc.getPosFromXPointer then
+                            local xp = bar_doc:getPageXPointer(page)
+                            if xp then
+                                local tick_pos = bar_doc:getPosFromXPointer(xp)
+                                local height = bar_doc.info and bar_doc.info.doc_height or 0
+                                tick_frac = height > 0 and (tick_pos / height) or nil
+                            end
+                        elseif bar_doc:hasHiddenFlows() then
+                            local flow = bar_doc:getPageFlow(page)
+                            if flow == bar_doc:getPageFlow(bar_pageno) then
+                                local flow_total = bar_doc:getTotalPagesInFlow(flow)
+                                tick_frac = flow_total > 0 and (bar_doc:getPageNumberInFlow(page) / flow_total) or nil
+                            end
+                        else
+                            tick_frac = page / raw_total
+                        end
+                        if tick_frac and tick_frac > 0 and tick_frac < 1 then
+                            table.insert(ticks, { tick_frac, tick_w, depth })
+                        end
+                    end
+                end
+            end
+        end
+
+        bar_info.book = { kind = "book", pct = book_pct or 0, ticks = ticks }
+
+        -- Chapter progress
+        local ch_pct = 0
+        if is_cre and bar_doc.getCurrentPos and ui.toc then
+            local cur_pos = bar_doc:getCurrentPos()
+            local prev_chapter = ui.toc:getPreviousChapter(bar_pageno)
+            local next_chapter = ui.toc:getNextChapter(bar_pageno)
+            if prev_chapter then
+                local prev_xp = bar_doc:getPageXPointer(prev_chapter)
+                local start_pos = prev_xp and bar_doc:getPosFromXPointer(prev_xp) or 0
+                local end_pos
+                if next_chapter then
+                    local next_xp = bar_doc:getPageXPointer(next_chapter)
+                    end_pos = next_xp and bar_doc:getPosFromXPointer(next_xp) or (bar_doc.info and bar_doc.info.doc_height or 0)
+                else
+                    end_pos = bar_doc.info and bar_doc.info.doc_height or 0
+                end
+                local range = end_pos - start_pos
+                if range > 0 then
+                    ch_pct = math.max(0, math.min(1, (cur_pos - start_pos) / range))
+                end
+            end
+        elseif ui.toc then
+            local done = ui.toc:getChapterPagesDone(bar_pageno)
+            local total = ui.toc:getChapterPageCount(bar_pageno)
+            if done and total and total > 0 then
+                ch_pct = math.max(0, math.min(1, (done + 1) / total))
+            end
+        end
+        bar_info.chapter = { kind = "chapter", pct = ch_pct, ticks = {} }
     end
 
     -- Session pages read
@@ -310,6 +415,14 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         end
     end
 
+    -- Replace bar tokens with a placeholder so buildBarLine knows where to insert the bar.
+    -- Uses U+FFFC OBJECT REPLACEMENT CHARACTER (UTF-8: \xEF\xBF\xBC).
+    local BAR_PLACEHOLDER = "\xEF\xBF\xBC"
+    local result_str = format_str
+    if has_bar then
+        result_str = result_str:gsub("%%bar", BAR_PLACEHOLDER)
+    end
+
     local replace = {
         -- Page/Progress
         ["%c"] = tostring(currentpage),
@@ -359,7 +472,7 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
     -- Track whether all tokens in the string resolved to empty or "0"
     local has_token = false
     local all_empty = true
-    local result = format_str:gsub("(%%%a)", function(token)
+    local result = result_str:gsub("(%%%a)", function(token)
         local val = replace[token]
         if val == nil then return token end -- unknown token, leave as-is
         has_token = true
@@ -374,8 +487,9 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         return num == "1" and num .. between or num .. between .. "s"
     end)
 
-    local is_empty = has_token and all_empty
-    return result, is_empty
+    -- A line with a bar token is never considered empty
+    local is_empty = has_token and all_empty and not bar_info
+    return result, is_empty, bar_info
 end
 
 function Tokens.expandPreview(format_str, ui, session_elapsed, session_pages_read)
