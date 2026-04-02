@@ -4,20 +4,18 @@ local datetime = require("datetime")
 local Tokens = {}
 
 -- Map KOReader UI language to a system locale for localized date strings.
--- Caches the result after first successful lookup.
-local _date_locale
+-- Caches per language to avoid repeated locale probing.
+local _date_locale_cache = {} -- lang -> locale string or false
 local function getDateLocale()
-    if _date_locale ~= nil then return _date_locale end
     local ok, GetText = pcall(require, "gettext")
     if not ok or not GetText or not GetText.current_lang or GetText.current_lang == "C" then
-        _date_locale = false
         return false
     end
     local lang = GetText.current_lang:match("^([a-z]+)") -- e.g. "es" from "es_ES"
     if not lang or lang == "en" then
-        _date_locale = false
         return false
     end
+    if _date_locale_cache[lang] ~= nil then return _date_locale_cache[lang] end
     -- Try common locale patterns
     local candidates = {
         lang .. "_" .. lang:upper() .. ".UTF-8",  -- es_ES.UTF-8
@@ -26,11 +24,11 @@ local function getDateLocale()
     for _, loc in ipairs(candidates) do
         if os.setlocale(loc, "time") then
             os.setlocale("", "time") -- restore
-            _date_locale = loc
+            _date_locale_cache[lang] = loc
             return loc
         end
     end
-    _date_locale = false
+    _date_locale_cache[lang] = false
     return false
 end
 
