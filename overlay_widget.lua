@@ -71,141 +71,9 @@ function BarWidget:getSize()
 end
 
 function BarWidget:paintTo(bb, x, y)
-    local w, h = self.width, self.height
-    if w < 1 or h < 1 then return end
-
-    if self.style == "metro" then
-        -- Metro style: start ring, trunk line, position dot, ticks above/below
-        local line_thick = math.max(3, math.floor(h * 0.2))
-        local start_r = math.floor(h / 2)  -- full height circle
-        local dot_r = math.max(4, math.floor(h * 0.35))
-        local line_y = y + math.floor((h - line_thick) / 2)
-
-        -- Inset line so start/end circles don't clip
-        local inset = start_r
-        local line_x = x + inset
-        local line_w = w - 2 * inset
-        if line_w < 1 then line_w = w; line_x = x; inset = 0 end
-
-        local fill_w = math.floor(line_w * self.fraction)
-
-        -- Background line + filled line
-        bb:paintRect(line_x, line_y, line_w, line_thick, Blitbuffer.COLOR_GRAY)
-        if fill_w > 0 then
-            bb:paintRect(line_x, line_y, fill_w, line_thick, Blitbuffer.COLOR_DARK_GRAY)
-        end
-
-        -- Chapter ticks: depth 1 above line (connected to trunk), depth 2 below
-        for _, tick in ipairs(self.ticks) do
-            local tick_frac = type(tick) == "table" and tick[1] or tick
-            local tick_w = type(tick) == "table" and tick[2] or 1
-            local tick_depth = type(tick) == "table" and tick[3] or 1
-            local tick_x = math.floor(line_w * tick_frac)
-            if tick_x > 0 and tick_x < line_w then
-                if tick_depth <= 1 then
-                    -- From top of bar down through trunk
-                    bb:paintRect(line_x + tick_x, y, line_thick, line_y + line_thick - y, Blitbuffer.COLOR_DARK_GRAY)
-                else
-                    -- Below trunk (same thickness as trunk)
-                    local below_y = line_y + line_thick
-                    local below_h = y + h - below_y
-                    if below_h > 0 then
-                        bb:paintRect(line_x + tick_x, below_y, line_thick, below_h, Blitbuffer.COLOR_DARK_GRAY)
-                    end
-                end
-            end
-        end
-
-        -- Start circle (empty ring, trunk colour)
-        local start_cx = line_x - start_r
-        bb:paintRoundedRect(start_cx, y, start_r * 2, start_r * 2, Blitbuffer.COLOR_DARK_GRAY, start_r)
-        local ring_border = line_thick
-        local inner_r = start_r - ring_border
-        if inner_r > 0 then
-            bb:paintRoundedRect(start_cx + ring_border, y + ring_border,
-                inner_r * 2, inner_r * 2, Blitbuffer.COLOR_WHITE, inner_r)
-        end
-
-        -- End circle (filled, trunk colour, same size as start)
-        local end_cx = line_x + line_w - start_r
-        bb:paintRoundedRect(end_cx, y, start_r * 2, start_r * 2, Blitbuffer.COLOR_DARK_GRAY, start_r)
-
-        -- Current position dot (filled black, smaller)
-        local dot_x = line_x + fill_w - dot_r
-        local dot_y = y + math.floor((h - dot_r * 2) / 2)
-        bb:paintRoundedRect(dot_x, dot_y, dot_r * 2, dot_r * 2, Blitbuffer.COLOR_BLACK, dot_r)
-
-    elseif self.style == "solid" then
-        -- Solid style: flat, no border, gray background + darker fill
-        bb:paintRect(x, y, w, h, Blitbuffer.COLOR_GRAY)
-        local fill_w = math.floor(w * self.fraction)
-        if fill_w > 0 then
-            bb:paintRect(x, y, fill_w, h, Blitbuffer.COLOR_GRAY_5)
-        end
-        -- Chapter ticks: white on filled portion, black on unfilled
-        for _, tick in ipairs(self.ticks) do
-            local tick_frac = type(tick) == "table" and tick[1] or tick
-            local tick_w = type(tick) == "table" and tick[2] or 1
-            local tick_x = math.floor(w * tick_frac)
-            if tick_x > 0 and tick_x < w then
-                local tick_color = tick_x < fill_w and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
-                bb:paintRect(x + tick_x, y, tick_w, h, tick_color)
-            end
-        end
-    else
-        -- Bordered / Rounded: white bg + dark gray fill + black border
-        local border = 1
-        local radius = self.style == "rounded" and math.floor(h / 2) or 0
-        if radius > 0 then
-            -- Layer 1: fill color as full rounded rect
-            bb:paintRoundedRect(x, y, w, h, Blitbuffer.COLOR_DARK_GRAY, radius)
-            -- Layer 2: white over unfilled portion (straight left edge, border masks right corners)
-            local inner_x = x + border + 1
-            local inner_y = y + border + 1
-            local inner_w = w - 2 * (border + 1)
-            local inner_h = h - 2 * (border + 1)
-            if inner_w > 0 and inner_h > 0 then
-                local fill_w = math.floor(inner_w * self.fraction)
-                local unfilled = inner_w - fill_w
-                if unfilled > 0 then
-                    bb:paintRect(inner_x + fill_w, inner_y, unfilled, inner_h, Blitbuffer.COLOR_WHITE)
-                end
-            end
-            -- Layer 3: border on top to mask any corner artifacts
-            bb:paintBorder(x, y, w, h, border, Blitbuffer.COLOR_BLACK, radius)
-        else
-            bb:paintRect(x, y, w, h, Blitbuffer.COLOR_WHITE)
-            local inner_x = x + border + 1
-            local inner_y = y + border + 1
-            local inner_w = w - 2 * (border + 1)
-            local inner_h = h - 2 * (border + 1)
-            if inner_w > 0 and inner_h > 0 then
-                local fill_w = math.floor(inner_w * self.fraction)
-                if fill_w > 0 then
-                    bb:paintRect(inner_x, inner_y, fill_w, inner_h, Blitbuffer.COLOR_DARK_GRAY)
-                end
-            end
-            bb:paintRect(x, y, w, border, Blitbuffer.COLOR_BLACK) -- top
-            bb:paintRect(x, y + h - border, w, border, Blitbuffer.COLOR_BLACK) -- bottom
-            bb:paintRect(x, y, border, h, Blitbuffer.COLOR_BLACK) -- left
-            bb:paintRect(x + w - border, y, border, h, Blitbuffer.COLOR_BLACK) -- right
-        end
-        -- Chapter ticks
-        local tick_x0 = x + border + 1
-        local tick_y0 = y + border + 1
-        local tick_area_w = w - 2 * (border + 1)
-        local tick_area_h = h - 2 * (border + 1)
-        if tick_area_w > 0 and tick_area_h > 0 then
-            for _, tick in ipairs(self.ticks) do
-                local tick_frac = type(tick) == "table" and tick[1] or tick
-                local tick_w = type(tick) == "table" and tick[2] or 1
-                local tick_x = math.floor(tick_area_w * tick_frac)
-                if tick_x > 0 and tick_x < tick_area_w then
-                    bb:paintRect(tick_x0 + tick_x, tick_y0, tick_w, tick_area_h, Blitbuffer.COLOR_BLACK)
-                end
-            end
-        end
-    end
+    -- Delegate to paintProgressBar for consistent color handling
+    OverlayWidget.paintProgressBar(bb, x, y, self.width, self.height,
+        self.fraction, self.ticks, self.style, nil, false, self.colors)
 end
 
 function BarWidget:free()
@@ -338,6 +206,7 @@ local function buildBarLine(text, cfg, available_w, max_width)
         fraction = bar_info.pct or 0,
         ticks = bar_info.ticks or {},
         style = bar_style,
+        colors = cfg.bar_colors,
     }
 
     table.insert(segments, bar_slot, { widget = bar_widget, w = bar_w, h = bar_h })

@@ -779,6 +779,7 @@ function Bookends:paintTo(bb, x, y)
                 cfg.bar_height = (pos_settings.line_bar_height and pos_settings.line_bar_height[i]) or nil
                 cfg.bar_width = (pos_settings.line_bar_width and pos_settings.line_bar_width[i]) or nil
                 cfg.bar_style = (pos_settings.line_bar_style and pos_settings.line_bar_style[i]) or nil
+                cfg.bar_colors = bar_colors
             end
             table.insert(line_configs, cfg)
         end
@@ -1937,7 +1938,7 @@ function Bookends:editLineString(pos, line_idx)
     end
 
     local BAR_TYPE_CYCLE = { "chapter", "book", "book_ticks", "book_ticks2", "book_ticks_all" }
-    local BAR_TYPE_LABELS = { chapter = _("Chapter"), book = _("Book"), book_ticks = _("Book+"), book_ticks2 = _("Book++"), book_ticks_all = _("Book*") }
+    local BAR_TYPE_LABELS = { chapter = _("Chapter"), book = _("Book"), book_ticks = _("Book+"), book_ticks2 = _("Book++"), book_ticks_all = _("Book+++") }
 
     local bar_insert_button = {
         text_func = function()
