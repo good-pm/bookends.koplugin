@@ -16,6 +16,34 @@ local InfoMessage = require("ui/widget/infomessage")
 local ConfirmBox = require("ui/widget/confirmbox")
 local util = require("util")
 
+--- Show an error on-screen and log it, instead of crashing.
+local function bookends_error(context, err)
+    local tb = debug.traceback(tostring(err), 2)
+    local msg = "Bookends error in " .. context .. ":\n" .. tb
+    -- Log to stderr (appears in crash.log on next launch)
+    io.stderr:write(msg .. "\n")
+    -- Show on-screen if possible (schedule to avoid re-entrancy during paintTo)
+    UIManager:scheduleIn(0, function()
+        UIManager:show(InfoMessage:new{
+            text = msg,
+            icon = "notice-warning",
+            width = Screen:getWidth() * 0.9,
+        })
+    end)
+end
+
+--- Wrap a function with error handling; on error show message instead of crash.
+local function safe(context, fn)
+    return function(...)
+        local ok, result = xpcall(fn, debug.traceback, ...)
+        if not ok then
+            bookends_error(context, result)
+            return true  -- still consume the event to prevent propagation
+        end
+        return result
+    end
+end
+
 --- Remove an index from a sparse table, shifting higher indices down.
 -- Unlike table.remove, this works correctly when the table has gaps.
 local function sparseRemove(tbl, idx)
@@ -66,6 +94,34 @@ Bookends.POSITIONS = {
 }
 
 function Bookends:init()
+    -- Install custom icons (chevron.down) into KOReader's user icons dir
+    local DataStorage = require("datastorage")
+    local lfs = require("libs/libkoreader-lfs")
+    local icons_dst = DataStorage:getDataDir() .. "/icons"
+    if lfs.attributes(icons_dst, "mode") ~= "directory" then
+        lfs.mkdir(icons_dst)
+    end
+    local plugin_icons = self.path .. "/icons"
+    if lfs.attributes(plugin_icons, "mode") == "directory" then
+        for f in lfs.dir(plugin_icons) do
+            if f:match("%.svg$") then
+                local src = plugin_icons .. "/" .. f
+                local dst = icons_dst .. "/" .. f
+                if lfs.attributes(dst, "mode") ~= "file" then
+                    local fin = io.open(src, "r")
+                    if fin then
+                        local fout = io.open(dst, "w")
+                        if fout then
+                            fout:write(fin:read("*a"))
+                            fout:close()
+                        end
+                        fin:close()
+                    end
+                end
+            end
+        end
+    end
+
     self:openSettings()
     self:loadSettings()
     self.ui.menu:registerToMainMenu(self)
@@ -345,6 +401,7 @@ end
 function Bookends:markDirty()
     self.dirty = true
     self._tick_cache = nil
+    self.enabled = self.settings:isTrue("enabled")  -- re-enable after paint error disable
     UIManager:setDirty(self.ui, "ui")
 end
 
@@ -457,6 +514,27 @@ end
 
 function Bookends:paintTo(bb, x, y)
     if not self.enabled then return end
+    local ok, err = xpcall(self._paintToInner, debug.traceback, self, bb, x, y)
+    if not ok then
+        self._paint_error_count = (self._paint_error_count or 0) + 1
+        if self._paint_error_count >= 3 then
+            -- Disable rendering to break error loop; re-enabled on next page turn
+            self.enabled = false
+            self._paint_error_count = 0
+            bookends_error("paintTo (disabled until page turn)", err)
+        else
+            local now = os.time()
+            if not self._last_paint_error or (now - self._last_paint_error) >= 10 then
+                self._last_paint_error = now
+                bookends_error("paintTo", err)
+            end
+        end
+    else
+        self._paint_error_count = 0
+    end
+end
+
+function Bookends:_paintToInner(bb, x, y)
 
     local screen_size = Screen:getSize()
     local screen_w = screen_size.w
@@ -1035,9 +1113,24 @@ function Bookends:buildMainMenu()
                         return _("Default font") .. " (" .. name .. ")"
                     end,
                     callback = function()
+                        -- Remember which positions are using the current default
+                        local inheriting = {}
+                        for _, p in ipairs(self.POSITIONS) do
+                            local ps = self.positions[p.key]
+                            if ps.font_face == nil or ps.font_face == self.defaults.font_face then
+                                inheriting[p.key] = true
+                            end
+                        end
                         self:showFontPicker(self.defaults.font_face, function(face)
                             self.defaults.font_face = face
                             self.settings:saveSetting("font_face", face)
+                            -- Cascade: clear per-position font_face for positions that were inheriting
+                            for _, p in ipairs(self.POSITIONS) do
+                                if inheriting[p.key] then
+                                    self.positions[p.key].font_face = nil
+                                    self:savePositionSetting(p.key)
+                                end
+                            end
                             self:markDirty()
                         end, Font.fontmap["ffont"])
                     end,
@@ -2028,19 +2121,19 @@ function Bookends:editLineString(pos, line_idx)
     -- Nudge buttons (1px per tap)
     local nudge_step = 1
     local nudge_up = {
-        text = "\xE2\x96\xB2",  -- ▲
+        icon = "chevron.up",
         callback = function() end,
     }
     local nudge_down = {
-        text = "\xE2\x96\xBC",  -- ▼
+        icon = "chevron.down",
         callback = function() end,
     }
     local nudge_left = {
-        text = "\xE2\x97\x80",  -- ◀
+        icon = "chevron.left",
         callback = function() end,
     }
     local nudge_right = {
-        text = "\xE2\x96\xB6",  -- ▶
+        icon = "chevron.right",
         callback = function() end,
     }
     local nudge_label = {
@@ -2317,58 +2410,330 @@ function Bookends:showLineManageDialog(pos, line_idx, touchmenu_instance)
 end
 
 function Bookends:showFontPicker(current_face, on_select, default_face)
-    -- Try KOReader's FontChooser (available since v2026.03)
-    local ok, FontChooser = pcall(require, "ui/widget/fontchooser")
-    if ok and FontChooser then
-        UIManager:show(FontChooser:new{
-            title = _("Select font"),
-            font_file = current_face,
-            default_font_file = default_face,
-            keep_shown_on_apply = true,
-            callback = function(file)
-                on_select(file)
-            end,
-        })
-        return
-    end
-
-    -- Fallback for older KOReader versions
-    local Menu = require("ui/widget/menu")
-    local cre = require("document/credocument"):engineInit()
+    local Blitbuffer = require("ffi/blitbuffer")
+    local Button = require("ui/widget/button")
+    local ButtonTable = require("ui/widget/buttontable")
+    local CenterContainer = require("ui/widget/container/centercontainer")
+    local FrameContainer = require("ui/widget/container/framecontainer")
+    local Geom = require("ui/geometry")
+    local GestureRange = require("ui/gesturerange")
+    local HorizontalGroup = require("ui/widget/horizontalgroup")
+    local HorizontalSpan = require("ui/widget/horizontalspan")
+    local InputContainer = require("ui/widget/container/inputcontainer")
+    local LeftContainer = require("ui/widget/container/leftcontainer")
+    local LineWidget = require("ui/widget/linewidget")
+    local Size = require("ui/size")
+    local TextWidget = require("ui/widget/textwidget")
+    local TopContainer = require("ui/widget/container/topcontainer")
+    local VerticalGroup = require("ui/widget/verticalgroup")
+    local VerticalSpan = require("ui/widget/verticalspan")
     local FontList = require("fontlist")
-    local face_list = cre.getFontFaces()
-    local items = {}
-    for _, face_name in ipairs(face_list) do
-        local font_filename, font_faceindex = cre.getFontFaceFilenameAndFaceIndex(face_name)
-        if not font_filename then
-            font_filename, font_faceindex = cre.getFontFaceFilenameAndFaceIndex(face_name, nil, true)
-        end
-        if font_filename then
-            local display_name = FontList:getLocalizedFontName(font_filename, font_faceindex) or face_name
-            local prefix = (font_filename == current_face) and "\xE2\x9C\x93 " or "   "
-            table.insert(items, {
-                text = prefix .. display_name,
-                font_filename = font_filename,
-            })
+    local ffiUtil = require("ffi/util")
+
+    -- Build sorted font list from FontList.fontinfo (same source as FontChooser)
+    local fonts = {}
+    local font_display_names = {} -- file → display name lookup
+    for font_file, font_info in pairs(FontList.fontinfo) do
+        local info = font_info and font_info[1]
+        if info then
+            local name = FontList:getLocalizedFontName(font_file, 0) or info.name
+            local display = name
+            if info.bold then display = display .. " " .. _("bold") end
+            if info.italic then display = display .. " " .. _("italic") end
+            table.insert(fonts, { file = font_file, name = name, display = display })
+            font_display_names[font_file] = display
         end
     end
+    table.sort(fonts, function(a, b)
+        if a.name ~= b.name then return ffiUtil.strcoll(a.name, b.name) end
+        return ffiUtil.strcoll(a.display, b.display)
+    end)
 
-    local menu
-    menu = Menu:new{
-        title = _("Select font"),
-        item_table = items,
-        width = math.floor(Screen:getWidth() * 0.8),
-        height = math.floor(Screen:getHeight() * 0.8),
-        onMenuChoice = function(_, item)
-            UIManager:close(menu)
-            if item.font_filename then
-                on_select(item.font_filename)
-            end
-        end,
+    local original_face = current_face
+    local selected = current_face
+    local per_page = 10
+    local page = 1
+
+    -- Find initial page for current font
+    for i, f in ipairs(fonts) do
+        if f.file == current_face then
+            page = math.ceil(i / per_page)
+            break
+        end
+    end
+    local total_pages = math.max(1, math.ceil(#fonts / per_page))
+
+    local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
+    local width = math.floor(math.min(screen_w, screen_h) * 0.9)
+    local font_size = 22
+    local title_font_size = 22
+    local row_height = Screen:scaleBySize(42)
+    local left_pad = Size.padding.large
+
+    local picker -- forward declaration
+
+    local function buildPage()
+        -- Custom title row: "Select font — FontName" with font name in its typeface
+        local selected_name = selected and font_display_names[selected] or _("Default")
+        local selected_face = selected and Font:getFace(selected, title_font_size)
+                              or Font:getFace("cfont", title_font_size)
+        local title_face = Font:getFace("infofont", title_font_size)
+        local title_prefix = _("Select font") .. " \xE2\x80\x94 "  -- em dash
+        local title_text = TextWidget:new{
+            text = title_prefix,
+            face = title_face,
+            fgcolor = Blitbuffer.COLOR_BLACK,
+            bold = true,
+        }
+        local title_text_width = title_text:getWidth()
+        local font_name_widget = TextWidget:new{
+            text = selected_name,
+            face = selected_face,
+            max_width = width - title_text_width - 2 * left_pad,
+            fgcolor = Blitbuffer.COLOR_BLACK,
+        }
+        local title_row_height = Screen:scaleBySize(48)
+        -- Use forced_height/baseline so both fonts share the same baseline
+        title_text.forced_height = title_row_height
+        title_text.forced_baseline = math.floor(title_row_height * 0.7)
+        font_name_widget.forced_height = title_row_height
+        font_name_widget.forced_baseline = math.floor(title_row_height * 0.7)
+        local title_row = LeftContainer:new{
+            dimen = Geom:new{ w = width, h = title_row_height },
+            HorizontalGroup:new{
+                HorizontalSpan:new{ width = left_pad },
+                title_text,
+                font_name_widget,
+            },
+        }
+        local title_line = LineWidget:new{
+            background = Blitbuffer.COLOR_BLACK,
+            dimen = Geom:new{ w = width, h = Size.line.thick },
+        }
+
+        local list_group = VerticalGroup:new{ align = "left" }
+        local start_idx = (page - 1) * per_page + 1
+        local end_idx = math.min(start_idx + per_page - 1, #fonts)
+
+        for i = start_idx, end_idx do
+            local f = fonts[i]
+            local is_selected = (f.file == selected)
+            local is_default = (f.file == default_face)
+            local face = Font:getFace(f.file, font_size)
+
+            local suffix = is_default and "  \xE2\x98\x85" or ""
+            local label = f.display .. suffix
+
+            -- Checkmark in a fixed-width area, then the font name
+            local baseline = math.floor(row_height * 0.65)
+            local check_w = TextWidget:new{
+                text = is_selected and "\xE2\x9C\x93 " or "",
+                face = Font:getFace("cfont", font_size),
+                forced_height = row_height,
+                forced_baseline = baseline,
+                fgcolor = Blitbuffer.COLOR_BLACK,
+                bold = true,
+            }
+            local check_width = Screen:scaleBySize(30)
+
+            local text_w = TextWidget:new{
+                text = label,
+                face = face,
+                forced_height = row_height,
+                forced_baseline = baseline,
+                max_width = width - 2 * left_pad - check_width,
+                fgcolor = Blitbuffer.COLOR_BLACK,
+                bold = is_selected,
+            }
+
+            local row_group = HorizontalGroup:new{
+                HorizontalSpan:new{ width = left_pad },
+                CenterContainer:new{
+                    dimen = Geom:new{ w = check_width, h = row_height },
+                    check_w,
+                },
+                text_w,
+            }
+
+            local item_container = InputContainer:new{
+                dimen = Geom:new{ w = width, h = row_height },
+                row_group,
+            }
+            item_container.ges_events = {
+                TapSelect = { GestureRange:new{ ges = "tap", range = item_container.dimen } },
+            }
+            local font_file = f.file
+            item_container.onTapSelect = safe("fontPicker:select", function()
+                selected = font_file
+                on_select(font_file)
+                picker:rebuild()
+                return true
+            end)
+
+            table.insert(list_group, item_container)
+        end
+
+        -- Page navigation row using icon buttons (matching KOReader style)
+        local page_info_text = Button:new{
+            text = T(_("Page %1 of %2"), page, total_pages),
+            callback = function() end,
+            bordersize = 0,
+            show_parent = picker,
+        }
+        local page_info_left = Button:new{
+            icon = "chevron.left",
+            callback = function()
+                page = page - 1
+                picker:rebuild()
+            end,
+            bordersize = 0,
+            enabled = page > 1,
+            show_parent = picker,
+        }
+        local page_info_right = Button:new{
+            icon = "chevron.right",
+            callback = function()
+                page = page + 1
+                picker:rebuild()
+            end,
+            bordersize = 0,
+            enabled = page < total_pages,
+            show_parent = picker,
+        }
+
+        local page_nav = HorizontalGroup:new{
+            align = "center",
+            page_info_left,
+            HorizontalSpan:new{ width = Screen:scaleBySize(16) },
+            page_info_text,
+            HorizontalSpan:new{ width = Screen:scaleBySize(16) },
+            page_info_right,
+        }
+
+        local hairline = CenterContainer:new{
+            dimen = Geom:new{ w = width, h = Size.line.thin },
+            LineWidget:new{
+                background = Blitbuffer.COLOR_DARK_GRAY,
+                dimen = Geom:new{ w = width - 2 * Size.padding.default, h = Size.line.thin },
+            },
+        }
+
+        -- Bottom action buttons
+        local action_buttons = ButtonTable:new{
+            width = width - 2 * Size.padding.default,
+            buttons = {{
+                {
+                    text = _("Close"),
+                    callback = function()
+                        -- Revert to original font
+                        if selected ~= original_face then
+                            on_select(original_face)
+                        end
+                        UIManager:close(picker)
+                    end,
+                },
+                {
+                    text = _("Reset"),
+                    enabled = selected ~= default_face,
+                    callback = function()
+                        selected = default_face
+                        on_select(default_face)
+                        UIManager:close(picker)
+                    end,
+                },
+                {
+                    text = _("Set font"),
+                    is_enter_default = true,
+                    callback = function()
+                        UIManager:close(picker)
+                    end,
+                },
+            }},
+            zero_sep = true,
+            show_parent = picker,
+        }
+
+        local list_height = per_page * row_height
+        local content = VerticalGroup:new{
+            align = "center",
+            title_row,
+            title_line,
+            TopContainer:new{
+                dimen = Geom:new{ w = width, h = list_height },
+                list_group,
+            },
+            hairline,
+            VerticalSpan:new{ width = Size.span.vertical_default },
+            CenterContainer:new{
+                dimen = Geom:new{ w = width, h = page_nav:getSize().h },
+                page_nav,
+            },
+            VerticalSpan:new{ width = Size.span.vertical_default },
+            CenterContainer:new{
+                dimen = Geom:new{ w = width, h = action_buttons:getSize().h },
+                action_buttons,
+            },
+        }
+
+        return FrameContainer:new{
+            radius = Size.radius.window,
+            bordersize = Size.border.window,
+            padding = 0,
+            margin = 0,
+            background = Blitbuffer.COLOR_WHITE,
+            content,
+        }
+    end
+
+    picker = InputContainer:new{
+        ges_events = {
+            TapClose = {
+                GestureRange:new{
+                    ges = "tap",
+                    range = Geom:new{ w = screen_w, h = screen_h },
+                },
+            },
+        },
     }
-    local x = math.floor((Screen:getWidth() - menu.dimen.w) / 2)
-    local y = math.floor((Screen:getHeight() - menu.dimen.h) / 2)
-    UIManager:show(menu, nil, nil, x, y)
+
+    function picker:rebuild()
+        local ok, frame = xpcall(buildPage, debug.traceback)
+        if not ok then
+            bookends_error("fontPicker:buildPage", frame)
+            UIManager:close(self)
+            return
+        end
+        self[1] = CenterContainer:new{
+            dimen = Geom:new{ w = screen_w, h = screen_h },
+            frame,
+        }
+        self.frame = frame
+        UIManager:setDirty(self, "ui")
+    end
+
+    function picker:onTapClose(_, ges_ev)
+        if self.frame and ges_ev.pos and not ges_ev.pos:intersectWith(self.frame.dimen) then
+            -- Revert to original font on tap-outside
+            if selected ~= original_face then
+                on_select(original_face)
+            end
+            UIManager:close(self)
+            return true
+        end
+        return false
+    end
+
+    function picker:onShow()
+        UIManager:setDirty(self, "ui")
+        return true
+    end
+
+    function picker:onCloseWidget()
+        UIManager:setDirty(nil, "ui")
+    end
+
+    picker:rebuild()
+    UIManager:show(picker)
 end
 
 -- ─── Token picker ────────────────────────────────────────
