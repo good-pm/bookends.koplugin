@@ -14,6 +14,60 @@ local function textWidgetOpts(t)
     return t
 end
 
+-- Cache for italic font variant lookups (face_name -> italic_path or false)
+local _italic_cache = {}
+
+--- Find the italic variant of a font by searching for common naming patterns.
+-- Searches installed fonts for variants matching patterns like Regular->Italic.
+-- Results are cached per face_name.
+-- @param face_name string: path/name of the base font
+-- @return string or false: path to italic variant, or false if not found
+function OverlayWidget.findItalicVariant(face_name)
+    if _italic_cache[face_name] ~= nil then
+        return _italic_cache[face_name] -- may be false (no variant found)
+    end
+
+    local ok, FontList = pcall(require, "fontlist")
+    if not ok then
+        _italic_cache[face_name] = false
+        return false
+    end
+    local all_fonts = FontList:getFontList()
+
+    local dir = face_name:match("^(.*/)") or ""
+    local basename = face_name:match("([^/]+)$") or face_name
+    local name_no_ext = (basename:gsub("%.[^.]+$", ""))
+
+    local candidates = {}
+    if name_no_ext:match("[Rr]egular") then
+        table.insert(candidates, (name_no_ext:gsub("[Rr]egular", "Italic")))
+        table.insert(candidates, (name_no_ext:gsub("[Rr]egular", "italic")))
+    end
+    if name_no_ext:match("[Bb]old") and not name_no_ext:match("[Ii]talic") then
+        table.insert(candidates, (name_no_ext:gsub("[Bb]old", "BoldItalic")))
+        table.insert(candidates, (name_no_ext:gsub("[Bb]old", "Bolditalic")))
+    end
+    table.insert(candidates, name_no_ext .. "-Italic")
+    table.insert(candidates, name_no_ext .. "Italic")
+    table.insert(candidates, name_no_ext .. " Italic")
+    table.insert(candidates, name_no_ext .. "-italic")
+
+    for _, candidate in ipairs(candidates) do
+        local pattern = candidate:lower()
+        for _, font_path in ipairs(all_fonts) do
+            local font_name = font_path:match("([^/]+)$") or ""
+            local font_no_ext = font_name:gsub("%.[^.]+$", "")
+            if font_no_ext:lower() == pattern then
+                _italic_cache[face_name] = font_path
+                return font_path
+            end
+        end
+    end
+
+    _italic_cache[face_name] = false
+    return false
+end
+
 --- Simple multi-line widget that paints TextWidgets stacked vertically.
 -- Avoids VerticalGroup to ensure reliable rendering on e-ink devices.
 local MultiLineWidget = {}
@@ -165,7 +219,7 @@ local function buildBarLine(text, cfg, available_w, max_width)
     addTextSegment(before)
 
     -- Bar (placeholder slot)
-    local bar_manual_w = cfg.bar_width or 0
+    local bar_manual_w = (bar_info and bar_info.width) or 0
     local bar_slot = #segments + 1  -- remember where to insert bar
 
     -- After text
@@ -248,9 +302,17 @@ function OverlayWidget.buildTextWidget(text, line_configs, h_anchor, max_width, 
 
     if #lines == 1 then
         local cfg = getConfig(1)
+        -- Try styled segments (BBCode tags or bar placeholder)
+        local segments, has_tags = OverlayWidget.parseStyledSegments(
+            lines[1], cfg.bold, cfg.italic or false, cfg.uppercase)
+        if segments then
+            return OverlayWidget.buildStyledLine(segments, cfg, available_w or Screen:getWidth(), max_width)
+        end
+        -- Bar line without tags
         if cfg.bar then
             return buildBarLine(lines[1], cfg, available_w or Screen:getWidth(), max_width)
         end
+        -- Plain text — fast path
         local display_text = cfg.uppercase and lines[1]:upper() or lines[1]
         local tw = TextWidget:new(textWidgetOpts{
             text = display_text,
@@ -276,7 +338,12 @@ function OverlayWidget.buildTextWidget(text, line_configs, h_anchor, max_width, 
     for i, line in ipairs(lines) do
         local cfg = getConfig(i)
         local widget, w, h
-        if cfg.bar then
+        -- Try styled segments (BBCode tags or bar placeholder)
+        local segments, has_tags = OverlayWidget.parseStyledSegments(
+            line, cfg.bold, cfg.italic or false, cfg.uppercase)
+        if segments then
+            widget, w, h = OverlayWidget.buildStyledLine(segments, cfg, available_w or Screen:getWidth(), max_width)
+        elseif cfg.bar then
             widget, w, h = buildBarLine(line, cfg, available_w or Screen:getWidth(), max_width)
         else
             local display_text = cfg.uppercase and line:upper() or line
@@ -339,6 +406,248 @@ function OverlayWidget.measureTextWidth(text, line_configs)
         end
     end
     return max_w
+end
+
+--- Apply per-token pixel-width limits encoded as \x01N\x02value\x03 markers.
+-- Measures each marked value with the given font; if wider than N pixels,
+-- truncates to the longest UTF-8 prefix that fits and appends "...".
+-- @param text string: text potentially containing markers
+-- @param face table: font face for measurement
+-- @param bold boolean: bold flag for measurement
+-- @param uppercase boolean: whether text will be rendered uppercase
+-- @return string: text with markers replaced by (possibly truncated) values
+function OverlayWidget.applyTokenLimits(text, face, bold, uppercase)
+    if not text:find("\x01") then return text end
+    local util = require("util")
+    return text:gsub("\x01(%d+)\x02(.-)\x03", function(limit_str, value)
+        local max_px = tonumber(limit_str)
+        if not max_px or max_px <= 0 or value == "" then return value end
+        local display = uppercase and value:upper() or value
+        -- Measure full value
+        local tw = TextWidget:new(textWidgetOpts{
+            text = display, face = face, bold = bold,
+        })
+        local w = tw:getSize().w
+        tw:free()
+        if w <= max_px then return value end
+        -- Need to truncate — measure ellipsis width
+        local ellipsis = "\xE2\x80\xA6" -- U+2026 …
+        local ew = TextWidget:new(textWidgetOpts{
+            text = ellipsis, face = face, bold = bold,
+        })
+        local ellipsis_w = ew:getSize().w
+        ew:free()
+        local target_px = max_px - ellipsis_w
+        if target_px <= 0 then return ellipsis end
+        -- Split into UTF-8 characters and binary search for max fitting prefix
+        local chars = util.splitToChars(display)
+        local lo, hi = 0, #chars
+        while lo < hi do
+            local mid = math.ceil((lo + hi) / 2)
+            local sub = table.concat(chars, "", 1, mid)
+            local stw = TextWidget:new(textWidgetOpts{
+                text = sub, face = face, bold = bold,
+            })
+            local sw = stw:getSize().w
+            stw:free()
+            if sw <= target_px then
+                lo = mid
+            else
+                hi = mid - 1
+            end
+        end
+        if lo == 0 then return ellipsis end
+        -- If uppercase was applied for measurement, we need to return the
+        -- original-case prefix (same char count) so buildTextWidget can
+        -- apply uppercase again without double-transforming.
+        local orig_chars = util.splitToChars(value)
+        return table.concat(orig_chars, "", 1, lo) .. ellipsis
+    end)
+end
+
+--- Parse BBCode-style formatting tags into styled text segments.
+-- Supports [b], [i], [u] tags with proper nesting via a style stack.
+-- Bar placeholder characters become special bar segments.
+-- If tags are improperly nested or unclosed, returns nil (render as plain text).
+-- @param text string: text potentially containing [b], [i], [u] tags and bar placeholder
+-- @param base_bold boolean: base bold state from line config
+-- @param base_italic boolean: base italic state from line config
+-- @param base_uppercase boolean: base uppercase state from line config
+-- @return table or nil: array of segments, or nil if no valid tags found
+-- @return boolean: true if tags were found and parsed
+function OverlayWidget.parseStyledSegments(text, base_bold, base_italic, base_uppercase)
+    -- Quick check: no tags present
+    if not text:find("%[") then
+        return nil, false
+    end
+
+    local segments = {}
+    local stack = {}  -- style stack: each entry is "b", "i", or "u"
+    local pos = 1
+    local pending = ""  -- accumulates text between tags
+    local found_tags = false
+
+    -- Current style: base style when stack is empty, stack-derived when inside tags.
+    -- Tags override base (not combine): [i] inside a Bold line = italic only.
+    local function currentStyle()
+        if #stack == 0 then
+            return base_bold, base_italic, base_uppercase
+        end
+        local bold, italic, uppercase = false, false, false
+        for _, tag in ipairs(stack) do
+            if tag == "b" then bold = true
+            elseif tag == "i" then italic = true
+            elseif tag == "u" then uppercase = true
+            end
+        end
+        return bold, italic, uppercase
+    end
+
+    local function flushPending()
+        if pending == "" then return end
+        local bold, italic, uppercase = currentStyle()
+        table.insert(segments, { text = pending, bold = bold, italic = italic, uppercase = uppercase })
+        pending = ""
+    end
+
+    local len = #text
+    while pos <= len do
+        -- Check for bar placeholder (3-byte UTF-8: \xEF\xBF\xBC)
+        if text:sub(pos, pos + 2) == BAR_PLACEHOLDER then
+            flushPending()
+            table.insert(segments, { bar = true })
+            pos = pos + 3
+        -- Check for closing tag [/b], [/i], [/u]
+        elseif text:match("^%[/[biu]%]", pos) then
+            local tag = text:sub(pos + 2, pos + 2)  -- the letter after /
+            if #stack > 0 and stack[#stack] == tag then
+                flushPending()
+                table.remove(stack)
+                found_tags = true
+                pos = pos + 4  -- [/b] = 4 chars
+            else
+                -- Mismatched close — render entire line as plain text
+                return nil, false
+            end
+        -- Check for opening tag [b], [i], [u]
+        elseif text:match("^%[[biu]%]", pos) then
+            flushPending()
+            local tag = text:sub(pos + 1, pos + 1)  -- the letter
+            table.insert(stack, tag)
+            found_tags = true
+            pos = pos + 3  -- [b] = 3 chars
+        else
+            pending = pending .. text:sub(pos, pos)
+            pos = pos + 1
+        end
+    end
+
+    flushPending()
+
+    -- Unclosed tags — return nil to signal: render entire line as plain text
+    if #stack > 0 then
+        return nil, false
+    end
+
+    if not found_tags then
+        return nil, false
+    end
+
+    return segments, true
+end
+
+--- Build a HorizontalRowWidget from styled segments (text and bar).
+-- Replaces both buildBarLine and single-TextWidget path for styled lines.
+-- @param segments table: array from parseStyledSegments
+-- @param cfg table: line config with .face, .face_name, .font_size, .bold, .bar, .bar_height, .bar_style, .bar_colors
+-- @param available_w number: total available width
+-- @param max_width number or nil: truncation limit for the whole line
+-- @return widget, width, height
+function OverlayWidget.buildStyledLine(segments, cfg, available_w, max_width)
+    local effective_w = max_width or available_w
+    local widgets = {}
+    local total_w = 0
+    local text_total_w = 0
+    local max_h = 0
+    local bar_slot = nil  -- index where bar widget should be inserted
+
+    for _, seg in ipairs(segments) do
+        if seg.bar then
+            -- Remember bar position, insert later after measuring text
+            bar_slot = #widgets + 1
+        else
+            local display = seg.uppercase and seg.text:upper() or seg.text
+            if display ~= "" then
+                -- Resolve font face for this segment
+                local seg_face = cfg.face
+                if seg.italic and cfg.face_name then
+                    local italic_face = OverlayWidget.findItalicVariant(cfg.face_name)
+                    if italic_face then
+                        seg_face = Font:getFace(italic_face, cfg.font_size)
+                    end
+                end
+
+                local tw = TextWidget:new(textWidgetOpts{
+                    text = display,
+                    face = seg_face,
+                    bold = seg.bold,
+                })
+                local size = tw:getSize()
+                table.insert(widgets, { widget = tw, w = size.w, h = size.h })
+                total_w = total_w + size.w
+                text_total_w = text_total_w + size.w
+                if size.h > max_h then max_h = size.h end
+            end
+        end
+    end
+
+    -- Ensure row height from font even if no text segments
+    if text_total_w == 0 and cfg.face then
+        local ref_tw = TextWidget:new(textWidgetOpts{ text = " ", face = cfg.face, bold = cfg.bold })
+        local ref_h = ref_tw:getSize().h
+        ref_tw:free()
+        if ref_h > max_h then max_h = ref_h end
+    end
+
+    -- Handle bar segment if present
+    if bar_slot and cfg.bar then
+        local bar_info = cfg.bar
+        local bar_h = cfg.bar_height or (cfg.face and cfg.face.size) or 5
+        local bar_style = cfg.bar_style or "bordered"
+        local bar_manual_w = (bar_info and bar_info.width) or 0
+
+        local bar_w
+        if bar_manual_w > 0 then
+            bar_w = math.min(bar_manual_w, math.max(0, effective_w - text_total_w))
+        else
+            bar_w = math.max(0, effective_w - text_total_w)
+        end
+
+        if bar_w >= 1 then
+            local bar_widget = BarWidget:new{
+                width = bar_w,
+                height = bar_h,
+                fraction = bar_info.pct or 0,
+                ticks = bar_info.ticks or {},
+                style = bar_style,
+                colors = cfg.bar_colors,
+            }
+            table.insert(widgets, bar_slot, { widget = bar_widget, w = bar_w, h = bar_h })
+            total_w = total_w + bar_w
+            if bar_h > max_h then max_h = bar_h end
+        end
+    end
+
+    if #widgets == 0 then
+        return nil, 0, 0
+    end
+
+    local row = HorizontalRowWidget:new{
+        segments = widgets,
+        width = total_w,
+        height = max_h,
+    }
+    return row, total_w, max_h
 end
 
 --- Calculate max_width for each position in a row, applying overlap prevention.

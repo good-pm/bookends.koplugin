@@ -38,6 +38,36 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         return format_str
     end
 
+    local orig_format_str = format_str
+
+    -- Pre-parse %X{N} pixel-width modifiers.
+    -- Builds a table of per-occurrence limits keyed by a running counter per token,
+    -- and strips {N} from the format string so existing expansion works unchanged.
+    local token_limits = {}  -- { ["%C"] = { [1] = 200 }, ["%T"] = { [1] = 300 } }
+    local bar_limit_w = nil  -- pixel width for %bar{N}, stored separately
+    local has_limits = format_str:find("{%d+}")
+    if has_limits then
+        -- Extract %bar{N} first (before single-char tokens, to avoid %b matching)
+        format_str = format_str:gsub("%%bar{(%d+)}", function(n)
+            local px = tonumber(n)
+            if px and px > 0 then
+                bar_limit_w = px
+            end
+            return "%bar"
+        end)
+        -- Extract %X{N} for single-char tokens
+        format_str = format_str:gsub("(%%%a){(%d+)}", function(token, n)
+            local px = tonumber(n)
+            if px and px > 0 then
+                if not token_limits[token] then
+                    token_limits[token] = {}
+                end
+                table.insert(token_limits[token], px)
+            end
+            return token
+        end)
+    end
+
     -- Preview mode: return descriptive labels
     if preview_mode then
         local preview = {
@@ -60,7 +90,20 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
             ["%v"] = "[disk]",
             ["%bar"] = "\xE2\x96\xB0\xE2\x96\xB0\xE2\x96\xB1\xE2\x96\xB1",  -- ▰▰▱▱
         }
-        local r = format_str:gsub("%%bar", preview["%bar"])
+        -- Strip %bar{N} and %X{N} for preview, showing limit in label
+        -- %bar{N} must be replaced before %bar (longer pattern first)
+        local r = orig_format_str:gsub("%%bar{(%d+)}", function(n)
+            return preview["%bar"] .. "{<=" .. n .. "}"
+        end)
+        r = r:gsub("%%bar", preview["%bar"])
+        r = r:gsub("(%%%a){(%d+)}", function(token, n)
+            local label = preview[token]
+            if label then
+                -- Turn [chapter] into {chapter<=200}
+                return "{" .. label:sub(2, -2) .. "<=" .. n .. "}"
+            end
+            return token .. "{" .. n .. "}"
+        end)
         r = r:gsub("(%%%a)", preview)
         return r
     end
@@ -105,8 +148,17 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         end
 
         if pageno then
-            local left = doc:getTotalPagesLeft(pageno)
-            if left then pages_left_book = left end
+            if (ui.pagemap and ui.pagemap:wantsPageLabels()) or doc:hasHiddenFlows() then
+                -- Use stable page numbers: totalpages and currentpage are already stable
+                local cur = tonumber(currentpage) or 0
+                local tot = tonumber(totalpages) or 0
+                if tot > 0 and cur > 0 then
+                    pages_left_book = tot - cur
+                end
+            else
+                local left = doc:getTotalPagesLeft(pageno)
+                if left then pages_left_book = left end
+            end
         end
     end
 
@@ -208,6 +260,9 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
             end
         end
         bar_info.chapter = { kind = "chapter", pct = ch_pct, ticks = {} }
+        if bar_limit_w then
+            bar_info.width = bar_limit_w
+        end
     end
 
     -- Session pages read
@@ -365,9 +420,12 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
     if needs("W") then
         local NetworkMgr = require("ui/network/manager")
         if NetworkMgr:isWifiOn() then
-            wifi_symbol = "\xEE\xB2\xA8" -- U+ECA8 wifi on
-        else
-            wifi_symbol = "\xEE\xB2\xA9" -- U+ECA9 wifi off
+            if NetworkMgr:isConnected() then
+                wifi_symbol = "\xEE\xB2\xA8" -- U+ECA8 wifi connected
+            else
+                wifi_symbol = "\xEE\xB2\xA9" -- U+ECA9 wifi enabled, not connected
+            end
+        -- else: wifi disabled, leave as "" (hidden)
         end
     end
 
@@ -492,12 +550,23 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
     -- Track whether all tokens in the string resolved to empty or "0"
     local has_token = false
     local all_empty = true
+    -- Per-token occurrence counters for matching limits
+    local token_occurrence = {}
     local result = result_str:gsub("(%%%a)", function(token)
         local val = replace[token]
         if val == nil then return token end -- unknown token, leave as-is
         has_token = true
         if val ~= "" and val ~= "0" then
             all_empty = false
+        end
+        -- Wrap with markers if this occurrence has a pixel limit
+        if token_limits[token] then
+            token_occurrence[token] = (token_occurrence[token] or 0) + 1
+            local px = token_limits[token][token_occurrence[token]]
+            if px then
+                -- \x01 N \x02 value \x03
+                return "\x01" .. tostring(px) .. "\x02" .. val .. "\x03"
+            end
         end
         return val
     end)

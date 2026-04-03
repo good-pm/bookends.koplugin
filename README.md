@@ -116,7 +116,7 @@ Tokens are placeholders that expand to live values. Insert them by typing `%` fo
 |-------|-------------|---------|
 | `%b` | Battery level | *73%* |
 | `%B` | Battery icon (dynamic) | Changes with charge level |
-| `%W` | Wi-Fi icon (dynamic) | Changes with connection status |
+| `%W` | Wi-Fi icon (dynamic) | Hidden when off, changes when connected/disconnected |
 | `%f` | Frontlight brightness | *18* or *OFF* |
 | `%F` | Frontlight warmth | *12* |
 | `%m` | RAM usage | *33%* |
@@ -149,6 +149,7 @@ Progress on EPUB documents updates smoothly per screen turn using pixel-level po
 ### Smart features
 
 - **Auto-hide** — Lines where all tokens resolve to empty or zero are automatically hidden
+- **Token width limits** — Append `{N}` to any token to cap its width at N pixels: `%C{200} - %g/%G` truncates the chapter title with ellipsis if it exceeds 200 pixels. Works with `%bar{400}` to set a fixed bar width instead of auto-fill.
 - **Pluralisation** — Write `%q highlight(s)` and it becomes `1 highlight` or `3 highlights`
 - **Odd/even pages** — Set any line to appear on all pages, odd pages only, or even pages only
 - **Auto-refresh** — Clock and other dynamic tokens update every 60 seconds
@@ -178,6 +179,20 @@ Each line has its own style controls in the editor dialog:
 - **Page filter** — Show on all pages, odd pages only, or even pages only
 
 Italic uses automatic font variant detection — searches installed fonts for matching italic variants.
+
+### Inline formatting
+
+Use BBCode-style tags to format parts of a line independently:
+
+| Tag | Effect | Example |
+|-----|--------|---------|
+| `[b]...[/b]` | Bold | `[b]Page[/b] %c of %t` |
+| `[i]...[/i]` | Italic | `[i]%C[/i] — %g/%G` |
+| `[u]...[/u]` | Uppercase | `[u]chapter[/u] %P` |
+
+Tags can be nested: `[b][i]bold italic[/i][/b]`. Tags must be properly nested — overlapping tags like `[b][i]...[/b][/i]` render as literal text. Unclosed tags also render as literal text.
+
+Tags override the line's per-line style. If a line is set to Bold, `[i]text[/i]` renders that segment as italic (not bold italic). Use `[b][i]...[/i][/b]` for explicit bold italic.
 
 ### Margins
 
