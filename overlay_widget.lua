@@ -553,11 +553,11 @@ function OverlayWidget.paintProgressBar(bb, x, y, w, h, fraction, ticks, style, 
         local end_cx = reverse and (line_ox - start_r) or (line_ox + line_len - start_r)
         paintCircle(end_cx, oy, start_r, metro_track)
 
-        -- Current position dot (uses track colour)
+        -- Current position dot (uses tick colour, default black)
         local pos_on_line = reverse and (line_len - line_fill) or line_fill
         local dot_cx = line_ox + pos_on_line - dot_r
         local dot_cy = oy + math.floor((thickness - dot_r * 2) / 2)
-        paintCircle(dot_cx, dot_cy, dot_r, metro_track)
+        paintCircle(dot_cx, dot_cy, dot_r, custom_tick or Blitbuffer.COLOR_BLACK)
 
     elseif style == "solid" then
         local solid_fill = custom_fill or Blitbuffer.COLOR_GRAY_5
