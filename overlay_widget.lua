@@ -640,13 +640,24 @@ function OverlayWidget.paintProgressBar(bb, x, y, w, h, fraction, ticks, style, 
         end
         -- Chapter ticks
         if inner_len > 0 and inner_thick > 0 then
+            local fill_len = math.floor(inner_len * fraction)
+            local fill_start = reverse and (inner_len - fill_len) or 0
             for _, tick in ipairs(ticks or {}) do
                 local tick_frac = type(tick) == "table" and tick[1] or tick
                 local tick_w = type(tick) == "table" and tick[2] or 1
                 if reverse then tick_frac = 1 - tick_frac end
                 local tick_pos = math.floor(inner_len * tick_frac)
                 if tick_pos > 0 and tick_pos < inner_len then
-                    pr(inner_ox + tick_pos, inner_oy, tick_w, inner_thick, custom_tick or Blitbuffer.COLOR_BLACK)
+                    local tick_color
+                    if custom_tick then
+                        tick_color = custom_tick
+                    elseif invert_read_ticks ~= false then
+                        local in_fill = tick_pos >= fill_start and tick_pos < fill_start + fill_len
+                        tick_color = in_fill and border_bg or Blitbuffer.COLOR_BLACK
+                    else
+                        tick_color = Blitbuffer.COLOR_BLACK
+                    end
+                    pr(inner_ox + tick_pos, inner_oy, tick_w, inner_thick, tick_color)
                 end
             end
         end
