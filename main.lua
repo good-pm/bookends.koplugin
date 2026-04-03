@@ -240,7 +240,7 @@ function Bookends:loadSettings()
     self.progress_bars = {}
     for i = 1, 4 do
         local default = util.tableDeepCopy(bar_defaults)
-        if i == 1 then default.chapter_ticks = "level1" end
+        if i == 1 then default.chapter_ticks = "all" end
         if i == 2 then default.type = "chapter" end
         self.progress_bars[i] = self.settings:readSetting("progress_bar_" .. i, default)
     end
@@ -583,11 +583,15 @@ function Bookends:paintTo(bb, x, y)
                         if not self._tick_cache then
                             self._tick_cache = self:_computeTickCache()
                         end
-                        local max_tick_depth = tick_level == "level2" and 2 or 1
-                        ticks = {}
-                        for _, tick in ipairs(self._tick_cache or {}) do
-                            if type(tick) == "table" and tick[3] and tick[3] <= max_tick_depth then
-                                table.insert(ticks, tick)
+                        if tick_level == "all" then
+                            ticks = self._tick_cache or {}
+                        else
+                            local max_tick_depth = tick_level == "level2" and 2 or 1
+                            ticks = {}
+                            for _, tick in ipairs(self._tick_cache or {}) do
+                                if type(tick) == "table" and tick[3] and tick[3] <= max_tick_depth then
+                                    table.insert(ticks, tick)
+                                end
                             end
                         end
                     end
@@ -741,8 +745,9 @@ function Bookends:paintTo(bb, x, y)
             if bar_data[key] and bar_data[key][expanded_idx] then
                 local all_bars = bar_data[key][expanded_idx]
                 local bar_type = (pos_settings.line_bar_type and pos_settings.line_bar_type[i]) or "chapter"
-                if bar_type == "book_ticks" or bar_type == "book_ticks2" then
-                    -- Filter ticks by depth: Book+ = depth 1 only, Book++ = depth 1-2
+                if bar_type == "book_ticks_all" then
+                    cfg.bar = all_bars.book  -- all ticks, no filtering
+                elseif bar_type == "book_ticks" or bar_type == "book_ticks2" then
                     local max_tick_depth = bar_type == "book_ticks" and 1 or 2
                     local book = all_bars.book
                     local filtered_ticks = {}
@@ -1193,6 +1198,7 @@ function Bookends:buildSingleBarMenu(bar_idx, bar_cfg)
                 end
                 local labels = {
                     off = _("Chapter ticks: Off"),
+                    all = _("Chapter ticks: All levels"),
                     level1 = _("Chapter ticks: Top level"),
                     level2 = _("Chapter ticks: Top 2 levels"),
                 }
@@ -1201,7 +1207,7 @@ function Bookends:buildSingleBarMenu(bar_idx, bar_cfg)
             enabled_func = function() return bar_cfg.enabled and bar_cfg.type == "book" end,
             keep_menu_open = true,
             callback = function(touchmenu_instance)
-                local cycle = { "off", "level1", "level2" }
+                local cycle = { "off", "all", "level1", "level2" }
                 local cur = bar_cfg.chapter_ticks or "off"
                 for idx, v in ipairs(cycle) do
                     if v == cur then
@@ -1797,8 +1803,8 @@ function Bookends:editLineString(pos, line_idx)
         return t and t:find("%%bar") ~= nil
     end
 
-    local BAR_TYPE_CYCLE = { "chapter", "book", "book_ticks", "book_ticks2" }
-    local BAR_TYPE_LABELS = { chapter = _("Chapter"), book = _("Book"), book_ticks = _("Book+"), book_ticks2 = _("Book++") }
+    local BAR_TYPE_CYCLE = { "chapter", "book", "book_ticks_all", "book_ticks", "book_ticks2" }
+    local BAR_TYPE_LABELS = { chapter = _("Chapter"), book = _("Book"), book_ticks_all = _("Book*"), book_ticks = _("Book+"), book_ticks2 = _("Book++") }
 
     local bar_insert_button = {
         text_func = function()
