@@ -697,6 +697,18 @@ function Bookends:_paintToInner(bb, x, y)
                             end
                         end
                     end
+                    -- Per-bar tick width override: recompute widths if this bar has a custom multiplier
+                    local per_bar_tw = bar_cfg.colors and bar_cfg.colors.tick_width_multiplier
+                    if per_bar_tw and ticks and #ticks > 0 then
+                        local max_depth = self.ui.toc and self.ui.toc:getMaxDepth() or 1
+                        local remapped = {}
+                        for _, tick in ipairs(ticks) do
+                            local d = type(tick) == "table" and tick[3] or 1
+                            local tw = math.max(1, (max_depth - d + 1) * per_bar_tw - 1)
+                            table.insert(remapped, { tick[1], tw, d })
+                        end
+                        ticks = remapped
+                    end
                 elseif bar_cfg.type == "chapter" then
                     if is_cre and doc.getCurrentPos and self.ui.toc then
                         local cur_pos = doc:getCurrentPos()
@@ -1211,7 +1223,8 @@ function Bookends:buildMainMenu()
                     text_func = function()
                         return _("Font scale") .. " (" .. self.defaults.font_scale .. "%)"
                     end,
-                    callback = function()
+                    keep_menu_open = true,
+                    callback = function(touchmenu_instance)
                         self:showNudgeDialog(_("Font scale"), self.defaults.font_scale, 25, 300, 100, "%",
                             function(val)
                                 self.defaults.font_scale = val
@@ -1219,7 +1232,7 @@ function Bookends:buildMainMenu()
                             end,
                             function()
                                 self.settings:saveSetting("font_scale", self.defaults.font_scale)
-                            end)
+                            end, nil, nil, touchmenu_instance)
                     end,
                 },
                 {
@@ -1227,8 +1240,9 @@ function Bookends:buildMainMenu()
                         local m = self.defaults
                         return _("Adjust margins") .. " (" .. m.margin_top .. "/" .. m.margin_bottom .. "/" .. m.margin_left .. "/" .. m.margin_right .. ")"
                     end,
-                    callback = function()
-                        self:showMarginAdjuster()
+                    keep_menu_open = true,
+                    callback = function(touchmenu_instance)
+                        self:showMarginAdjuster(touchmenu_instance)
                     end,
                 },
                 {
@@ -1243,9 +1257,7 @@ function Bookends:buildMainMenu()
                                 self.settings:saveSetting("overlap_gap", val)
                                 self:markDirty()
                             end,
-                            function()
-                                if touchmenu_instance then touchmenu_instance:updateItems() end
-                            end)
+                            nil, nil, nil, touchmenu_instance)
                     end,
                 },
                 {
@@ -1506,9 +1518,7 @@ function Bookends:buildSingleBarMenu(bar_idx, bar_cfg)
                         bar_cfg.height = val
                         saveBar()
                     end,
-                    function()
-                        if touchmenu_instance then touchmenu_instance:updateItems() end
-                    end)
+                    nil, nil, nil, touchmenu_instance)
             end,
         },
         {
@@ -1519,16 +1529,17 @@ function Bookends:buildSingleBarMenu(bar_idx, bar_cfg)
                     (bar_cfg.margin_right or 0) .. ")"
             end,
             enabled_func = isEnabled,
-            callback = function()
-                self:showBarMarginAdjuster(bar_cfg, bar_idx)
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                self:showBarMarginAdjuster(bar_cfg, bar_idx, touchmenu_instance)
             end,
         },
         {
             text_func = function()
                 if bar_cfg.colors then
-                    return _("Custom colors") .. " (\u{2713})"
+                    return _("Custom colours and tick marks") .. " (\u{2713})"
                 end
-                return _("Custom colors")
+                return _("Custom colours and tick marks")
             end,
             enabled_func = isEnabled,
             sub_item_table_func = function()
@@ -1571,17 +1582,49 @@ function Bookends:buildSingleBarMenu(bar_idx, bar_cfg)
                     end,
                     enabled_func = function() return bar_cfg.colors ~= nil end,
                     keep_menu_open = true,
-                    callback = function()
+                    callback = function(touchmenu_instance)
                         self:showNudgeDialog(_("Tick height"), bc.tick_height_pct or 100, 1, 400, 100, "%",
                             function(val)
                                 bc.tick_height_pct = val ~= 100 and val or nil
                                 bar_cfg.colors = bc
                                 saveBar()
-                            end)
+                            end,
+                            nil, nil, nil, touchmenu_instance)
                     end,
                     hold_callback = function(touchmenu_instance)
                         bc.tick_height_pct = nil
                         bar_cfg.colors = bc
+                        saveBar()
+                        if touchmenu_instance then touchmenu_instance:updateItems() end
+                    end,
+                })
+
+                -- Per-bar tick width override
+                table.insert(custom_items, {
+                    text_func = function()
+                        local m = bc.tick_width_multiplier
+                        if m then
+                            return _("Tick width") .. ": " .. m .. "x"
+                        end
+                        return _("Tick width") .. ": " .. _("default") .. " (" .. self.settings:readSetting("tick_width_multiplier", 2) .. "x)"
+                    end,
+                    enabled_func = function() return bar_cfg.colors ~= nil end,
+                    keep_menu_open = true,
+                    callback = function(touchmenu_instance)
+                        local current = bc.tick_width_multiplier or self.settings:readSetting("tick_width_multiplier", 2)
+                        self:showNudgeDialog(_("Tick width"), current, 1, 5, self.settings:readSetting("tick_width_multiplier", 2), "x",
+                            function(val)
+                                bc.tick_width_multiplier = val
+                                bar_cfg.colors = bc
+                                self._tick_cache = nil
+                                saveBar()
+                            end,
+                            nil, 1, false, touchmenu_instance)
+                    end,
+                    hold_callback = function(touchmenu_instance)
+                        bc.tick_width_multiplier = nil
+                        bar_cfg.colors = bc
+                        self._tick_cache = nil
                         saveBar()
                         if touchmenu_instance then touchmenu_instance:updateItems() end
                     end,
@@ -1594,6 +1637,7 @@ function Bookends:buildSingleBarMenu(bar_idx, bar_cfg)
                     keep_menu_open = true,
                     callback = function(touchmenu_instance)
                         bar_cfg.colors = {}
+                        self._tick_cache = nil
                         saveBar()
                         if touchmenu_instance then touchmenu_instance:updateItems() end
                     end,
@@ -1605,7 +1649,8 @@ function Bookends:buildSingleBarMenu(bar_idx, bar_cfg)
     }
 end
 
-function Bookends:showBarMarginAdjuster(bar_cfg, bar_idx)
+function Bookends:showBarMarginAdjuster(bar_cfg, bar_idx, touchmenu_instance)
+    local restoreMenu = self:hideMenu(touchmenu_instance)
     local original = {
         margin_v = bar_cfg.margin_v or 0,
         margin_left = bar_cfg.margin_left or 0,
@@ -1648,6 +1693,7 @@ function Bookends:showBarMarginAdjuster(bar_cfg, bar_idx)
             end
             self.settings:saveSetting("progress_bar_" .. bar_idx, bar_cfg)
             self:markDirty()
+            restoreMenu()
         end,
         buttons = {
             makeRow(edge_label, "margin_v"),
@@ -1663,6 +1709,7 @@ function Bookends:showBarMarginAdjuster(bar_cfg, bar_idx)
                         self.settings:saveSetting("progress_bar_" .. bar_idx, bar_cfg)
                         self:markDirty()
                         UIManager:close(margin_dialog)
+                        restoreMenu()
                     end,
                 },
                 {
@@ -1682,6 +1729,7 @@ function Bookends:showBarMarginAdjuster(bar_cfg, bar_idx)
                     callback = function()
                         self.settings:saveSetting("progress_bar_" .. bar_idx, bar_cfg)
                         UIManager:close(margin_dialog)
+                        restoreMenu()
                     end,
                 },
             },
@@ -1690,8 +1738,27 @@ function Bookends:showBarMarginAdjuster(bar_cfg, bar_idx)
     UIManager:show(margin_dialog)
 end
 
-function Bookends:showNudgeDialog(title, value, min_val, max_val, default_val, unit, on_change, on_close, small_step, large_step)
+--- Hide the touch menu so the user can see live changes on the page,
+--- then return a function that re-shows it at the same position.
+function Bookends:hideMenu(touchmenu_instance)
+    if not touchmenu_instance then return function() end end
+    -- The UIManager stack holds show_parent (a CenterContainer), not the TouchMenu itself.
+    local container = touchmenu_instance.show_parent or touchmenu_instance
+    UIManager:close(container, "ui")
+    return function()
+        UIManager:show(container)
+        touchmenu_instance:updateItems()
+    end
+end
+
+function Bookends:showNudgeDialog(title, value, min_val, max_val, default_val, unit, on_change, on_close, small_step, large_step, touchmenu_instance)
     local ButtonDialog = require("ui/widget/buttondialog")
+    local restoreMenu = self:hideMenu(touchmenu_instance)
+    local orig_on_close = on_close
+    on_close = function()
+        restoreMenu()
+        if orig_on_close then orig_on_close() end
+    end
     local dialog
     local original_value = value
     small_step = small_step or 1
@@ -1762,9 +1829,7 @@ function Bookends:_buildColorItems(bc, saveColors)
                 bc[field] = 0xFF - math.floor(val * 0xFF / 100 + 0.5)
                 saveColors()
             end,
-            function()
-                if touchmenu_instance then touchmenu_instance:updateItems() end
-            end)
+            nil, nil, nil, touchmenu_instance)
     end
 
     local function pctLabel(field, default_pct)
@@ -1872,9 +1937,7 @@ function Bookends:buildBarColorsMenu()
                     self._tick_cache = nil
                     self:markDirty()
                 end,
-                function()
-                    if touchmenu_instance then touchmenu_instance:updateItems() end
-                end, 1, false)
+                nil, 1, false, touchmenu_instance)
         end,
         hold_callback = function(touchmenu_instance)
             self.settings:delSetting("tick_width_multiplier")
@@ -1901,9 +1964,7 @@ function Bookends:buildBarColorsMenu()
                     end
                     self:markDirty()
                 end,
-                function()
-                    if touchmenu_instance then touchmenu_instance:updateItems() end
-                end)
+                nil, nil, nil, touchmenu_instance)
         end,
         hold_callback = function(touchmenu_instance)
             self.settings:delSetting("tick_height_pct")
@@ -1951,7 +2012,7 @@ function Bookends:buildPositionMenu(pos)
         })
     end
 
-    -- Line entries (no keep_menu_open so menu refreshes after editing)
+    -- Line entries
     for i, line in ipairs(lines) do
         table.insert(menu, {
             text_func = function()
@@ -1968,8 +2029,9 @@ function Bookends:buildPositionMenu(pos)
                 end
                 return _("Line") .. " " .. i .. tag .. ": " .. preview
             end,
-            callback = function()
-                self:editLineString(pos, i)
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                self:editLineString(pos, i, touchmenu_instance)
             end,
             hold_callback = function(touchmenu_instance)
                 self:showLineManageDialog(pos, i, touchmenu_instance)
@@ -1980,11 +2042,12 @@ function Bookends:buildPositionMenu(pos)
     -- Add line
     table.insert(menu, {
         text = "+ " .. _("Add line") .. "  (" .. _("long press lines to manage") .. ")",
-        callback = function()
+        keep_menu_open = true,
+        callback = function(touchmenu_instance)
             local idx = #self.positions[pos.key].lines + 1
             table.insert(self.positions[pos.key].lines, "")
             self:savePositionSetting(pos.key)
-            self:editLineString(pos, idx)
+            self:editLineString(pos, idx, touchmenu_instance)
         end,
         separator = true,
     })
@@ -1998,7 +2061,8 @@ function Bookends:buildPositionMenu(pos)
             if val then return v_label .. " (" .. val .. ")" end
             return v_label
         end,
-        callback = function()
+        keep_menu_open = true,
+        callback = function(touchmenu_instance)
             local ps = self.positions[pos.key]
             self:showNudgeDialog(v_label, ps.v_offset or 0, 0, 999, 0, "px",
                 function(val)
@@ -2007,7 +2071,7 @@ function Bookends:buildPositionMenu(pos)
                 end,
                 function()
                     self:savePositionSetting(pos.key)
-                end)
+                end, nil, nil, touchmenu_instance)
         end,
     })
 
@@ -2020,7 +2084,8 @@ function Bookends:buildPositionMenu(pos)
                 if val then return h_label .. " (" .. val .. ")" end
                 return h_label
             end,
-            callback = function()
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
                 local ps = self.positions[pos.key]
                 self:showNudgeDialog(h_label, ps.h_offset or 0, 0, 999, 0, "px",
                     function(val)
@@ -2029,7 +2094,7 @@ function Bookends:buildPositionMenu(pos)
                     end,
                     function()
                         self:savePositionSetting(pos.key)
-                    end)
+                    end, nil, nil, touchmenu_instance)
             end,
         })
     end
@@ -2176,7 +2241,8 @@ end
 
 -- ─── Line editing ────────────────────────────────────────
 
-function Bookends:editLineString(pos, line_idx)
+function Bookends:editLineString(pos, line_idx, touchmenu_instance)
+    local restoreMenu = self:hideMenu(touchmenu_instance)
     local IconPicker = require("icon_picker")
 
     local pos_settings = self.positions[pos.key]
@@ -2484,6 +2550,7 @@ function Bookends:editLineString(pos, line_idx)
                     self:savePositionSetting(pos.key)
                     UIManager:close(format_dialog)
                     self:markDirty()
+                    restoreMenu()
                 end,
             },
             {
@@ -2528,6 +2595,7 @@ function Bookends:editLineString(pos, line_idx)
                     self:savePositionSetting(pos.key)
                     UIManager:close(format_dialog)
                     self:markDirty()
+                    restoreMenu()
                 end,
             },
         })
@@ -3536,6 +3604,7 @@ end
 
 
 function Bookends:showMarginAdjuster(touchmenu_instance)
+    local restoreMenu = self:hideMenu(touchmenu_instance)
     local original = {
         margin_top = self.defaults.margin_top,
         margin_bottom = self.defaults.margin_bottom,
@@ -3577,6 +3646,7 @@ function Bookends:showMarginAdjuster(touchmenu_instance)
                     end
                     self:markDirty()
                     UIManager:close(margin_dialog)
+                    restoreMenu()
                 end,
             },
             {
@@ -3599,6 +3669,7 @@ function Bookends:showMarginAdjuster(touchmenu_instance)
                     self.settings:saveSetting("margin_left", self.defaults.margin_left)
                     self.settings:saveSetting("margin_right", self.defaults.margin_right)
                     UIManager:close(margin_dialog)
+                    restoreMenu()
                 end,
             },
         },
