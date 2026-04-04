@@ -423,7 +423,14 @@ function Bookends:markDirty()
     if not self._error_disabled then
         self.enabled = self.settings:isTrue("enabled")
     end
-    UIManager:setDirty(self.ui, "ui")
+    -- Debounce: coalesce multiple markDirty calls within the same tick
+    if not self._repaint_scheduled then
+        self._repaint_scheduled = true
+        UIManager:nextTick(function()
+            self._repaint_scheduled = false
+            UIManager:setDirty(self.ui, "ui")
+        end)
+    end
 end
 
 --- Compute chapter tick fractions for book progress bars (cached per dirty cycle).
@@ -504,8 +511,10 @@ function Bookends:onPosUpdate() self:markDirty() end
 function Bookends:onReaderFooterVisibilityChange() self:markDirty() end
 function Bookends:onSetDimensions() self:markDirty() end
 
--- Repaint after events that cause the footer to refresh over us
+-- Repaint after events that cause the stock footer to refresh over us.
+-- Only needed when the stock footer is actually visible.
 function Bookends:delayedRepaint()
+    if not self.ui.view.footer_visible then return end
     UIManager:nextTick(function()
         self:markDirty()
     end)
@@ -533,9 +542,12 @@ function Bookends:onResume()
     self.session_start_page = self.session_max_page
     self:markDirty()
     -- Repaint after the footer's async resume refresh paints over us
-    UIManager:scheduleIn(1.5, function()
-        self:markDirty()
-    end)
+    -- (only needed when the stock footer is visible)
+    if self.ui.view.footer_visible then
+        UIManager:scheduleIn(1.5, function()
+            self:markDirty()
+        end)
+    end
 end
 
 function Bookends:paintTo(bb, x, y)
