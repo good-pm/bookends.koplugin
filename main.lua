@@ -2665,8 +2665,20 @@ function Bookends:showFontPicker(current_face, on_select, default_face)
         -- Page navigation row using icon buttons (matching KOReader style)
         local page_info_text = Button:new{
             text = T(_("Page %1 of %2"), page, total_pages),
+            text_font_size = 16,
+            text_font_bold = false,
             callback = function() end,
             bordersize = 0,
+            show_parent = picker,
+        }
+        local page_first = Button:new{
+            icon = "chevron.first",
+            callback = function()
+                page = 1
+                picker:rebuild()
+            end,
+            bordersize = 0,
+            enabled = page > 1,
             show_parent = picker,
         }
         local page_info_left = Button:new{
@@ -2689,14 +2701,29 @@ function Bookends:showFontPicker(current_face, on_select, default_face)
             enabled = page < total_pages,
             show_parent = picker,
         }
+        local page_last = Button:new{
+            icon = "chevron.last",
+            callback = function()
+                page = total_pages
+                picker:rebuild()
+            end,
+            bordersize = 0,
+            enabled = page < total_pages,
+            show_parent = picker,
+        }
 
+        local nav_spacing = HorizontalSpan:new{ width = Screen:scaleBySize(8) }
         local page_nav = HorizontalGroup:new{
             align = "center",
+            page_first,
+            nav_spacing,
             page_info_left,
             HorizontalSpan:new{ width = Screen:scaleBySize(16) },
             page_info_text,
             HorizontalSpan:new{ width = Screen:scaleBySize(16) },
             page_info_right,
+            nav_spacing,
+            page_last,
         }
 
         local hairline = CenterContainer:new{
