@@ -810,6 +810,10 @@ function OverlayWidget.paintProgressBar(bb, x, y, w, h, fraction, ticks, style, 
         local start_r = math.floor(thickness / 2)  -- full height circle
         local dot_r = math.max(4, math.floor(thickness * 0.35))
         local line_y = oy + math.floor((thickness - line_thick) / 2)
+        -- Metro ticks default shorter — the thin trunk looks better with
+        -- compact ticks.  Scale the user's tick_height_pct relative to 60%
+        -- so 100% (default) → 60%, 200% → 120%, etc.
+        tick_height_pct = math.floor(tick_height_pct * 0.35)
 
         -- Inset the line so start/end circles don't clip
         local inset = start_r
@@ -827,6 +831,7 @@ function OverlayWidget.paintProgressBar(bb, x, y, w, h, fraction, ticks, style, 
 
         -- Chapter ticks: depth 1 above line (connected to trunk), depth 2 below
         -- When reversed, flip tick sides so the visual hierarchy mirrors the direction
+        local metro_tick_h = math.max(1, math.floor(thickness * tick_height_pct / 100))
         for _, tick in ipairs(ticks or {}) do
             local tick_frac = type(tick) == "table" and tick[1] or tick
             local tick_w = type(tick) == "table" and tick[2] or 1
@@ -843,16 +848,9 @@ function OverlayWidget.paintProgressBar(bb, x, y, w, h, fraction, ticks, style, 
                 -- Vertical (side-anchored) bars: flip tick sides
                 if vertical then tick_above = not tick_above end
                 if tick_above then
-                    -- From top of bar down through trunk
-                    local th = math.max(1, math.floor(thickness * tick_height_pct / 100))
-                    pr(line_ox + tick_pos, line_y + line_thick - th, line_thick, th, metro_track)
+                    pr(line_ox + tick_pos, line_y - metro_tick_h, line_thick, metro_tick_h, metro_track)
                 else
-                    -- Below trunk (same thickness as trunk)
-                    local below_y = line_y + line_thick
-                    local th = math.max(1, math.floor(thickness * tick_height_pct / 100))
-                    if th > 0 then
-                        pr(line_ox + tick_pos, below_y, line_thick, th, metro_track)
-                    end
+                    pr(line_ox + tick_pos, line_y + line_thick, line_thick, metro_tick_h, metro_track)
                 end
             end
         end
@@ -920,46 +918,72 @@ function OverlayWidget.paintProgressBar(bb, x, y, w, h, fraction, ticks, style, 
         local border_fill = resolveColor(custom_fill, Blitbuffer.COLOR_DARK_GRAY)
         local border_bg = resolveColor(custom_bg, Blitbuffer.COLOR_WHITE)
         local border = 1
-        local margin_h = math.max(3, math.floor(thickness * 0.2))
-        local margin_v = math.max(1, math.floor(thickness * 0.1))
         local min_dim = vertical and w or h
         local radius = style == "rounded" and math.floor(min_dim / 2) or 0
-        -- Background + border (use real coordinates for rounded rect API)
+        -- Background (use real coordinates for rounded rect API)
         if radius > 0 then
-            if border_fill then
-                bb:paintRoundedRect(x, y, w, h, border_fill, radius)
+            if border_bg then
+                bb:paintRoundedRect(x, y, w, h, border_bg, radius)
             end
         else
             if border_bg then
                 bb:paintRect(x, y, w, h, border_bg)
             end
         end
-        local h_inset = radius > 0 and radius or (border + margin_h)
-        local v_inset = border + margin_v
+        local h_inset, v_inset
+        if radius > 0 then
+            -- Rounded: paint fill as a rounded rect, then overpaint the unfilled
+            -- portion with a background rounded rect so both ends keep curved edges.
+            v_inset = border
+            h_inset = border
+            local padding = math.max(1, math.floor(thickness * 0.1))
+            local inset = border + padding
+            local inner_r = math.max(0, radius - inset)
+            local inner_x = x + inset
+            local inner_y = y + inset
+            local inner_w = w - 2 * inset
+            local inner_h = h - 2 * inset
+            if inner_w > 0 and inner_h > 0 then
+                local inner_len = vertical and inner_h or inner_w
+                local fill_len = math.floor(inner_len * fraction)
+                -- Background (unfilled) first as full rounded rect
+                if border_bg then
+                    bb:paintRoundedRect(inner_x, inner_y, inner_w, inner_h, border_bg, inner_r)
+                end
+                -- Fill (read portion) on top — its rounded corners overlay the background
+                if fill_len > 0 and border_fill then
+                    if vertical then
+                        if reverse then
+                            bb:paintRoundedRect(inner_x, inner_y + inner_h - fill_len, inner_w, fill_len, border_fill, inner_r)
+                        else
+                            bb:paintRoundedRect(inner_x, inner_y, inner_w, fill_len, border_fill, inner_r)
+                        end
+                    else
+                        if reverse then
+                            bb:paintRoundedRect(inner_x + inner_w - fill_len, inner_y, fill_len, inner_h, border_fill, inner_r)
+                        else
+                            bb:paintRoundedRect(inner_x, inner_y, fill_len, inner_h, border_fill, inner_r)
+                        end
+                    end
+                end
+            end
+        else
+            local padding = math.max(1, math.floor(thickness * 0.1))
+            h_inset = border + padding
+            v_inset = border + padding
+        end
         local inner_ox = ox + h_inset
         local inner_oy = oy + v_inset
         local inner_len = length - 2 * h_inset
         local inner_thick = thickness - 2 * v_inset
-        if inner_len > 0 and inner_thick > 0 then
+        if inner_len > 0 and inner_thick > 0 and radius == 0 then
+            -- Bordered (non-rounded): rectangular fill
             local fill_len = math.floor(inner_len * fraction)
-            if radius > 0 then
-                -- Rounded: fill already painted as background, erase unfilled
-                local unfilled = inner_len - fill_len
-                if unfilled > 0 then
-                    if reverse then
-                        pr(inner_ox, inner_oy, unfilled, inner_thick, border_bg)
-                    else
-                        pr(inner_ox + fill_len, inner_oy, unfilled, inner_thick, border_bg)
-                    end
-                end
-            else
-                -- Bordered: paint fill on white background
-                if fill_len > 0 then
-                    if reverse then
-                        pr(inner_ox + inner_len - fill_len, inner_oy, fill_len, inner_thick, border_fill)
-                    else
-                        pr(inner_ox, inner_oy, fill_len, inner_thick, border_fill)
-                    end
+            if fill_len > 0 then
+                if reverse then
+                    pr(inner_ox + inner_len - fill_len, inner_oy, fill_len, inner_thick, border_fill)
+                else
+                    pr(inner_ox, inner_oy, fill_len, inner_thick, border_fill)
                 end
             end
         end
