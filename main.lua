@@ -673,7 +673,7 @@ function Bookends:isPositionActive(key)
     return self.enabled and #self.positions[key].lines > 0 and not self.positions[key].disabled
 end
 
-function Bookends:markDirty()
+function Bookends:markDirty(refresh_mode)
     self.dirty = true
     self._tick_cache = nil
     if not self._error_disabled then
@@ -683,10 +683,11 @@ function Bookends:markDirty()
     -- Skip if a KOReader paint cycle already consumed the dirty flag.
     if not self._repaint_scheduled then
         self._repaint_scheduled = true
+        local mode = refresh_mode or "ui"
         UIManager:nextTick(function()
             self._repaint_scheduled = false
             if self.dirty then
-                UIManager:setDirty(self.ui, "ui")
+                UIManager:setDirty(self.ui, mode)
             end
         end)
     end
@@ -775,15 +776,25 @@ function Bookends:onPosUpdate()
     self.dirty = true
     self._tick_cache = nil
 end
-function Bookends:onReaderFooterVisibilityChange() self:markDirty() end
+function Bookends:onReaderFooterVisibilityChange()
+    -- Just set dirty; KOReader's own paint cycle for the visibility change
+    -- will call our paintTo.  Avoid markDirty() which requests a full-screen
+    -- "ui" e-ink refresh that causes a visible flash in dark mode.
+    self.dirty = true
+    self._tick_cache = nil
+end
 function Bookends:onSetDimensions() self:markDirty() end
 
 -- Repaint after events that cause the stock footer to refresh over us.
 -- Only needed when the stock footer is actually visible.
+-- Like onReaderFooterVisibilityChange, we avoid markDirty() (which triggers
+-- a full-screen "ui" e-ink refresh) and instead just set the dirty flag so
+-- the event's own paint cycle picks up our changes without a second flash.
 function Bookends:delayedRepaint()
     if not self.ui.view.footer_visible then return end
     UIManager:nextTick(function()
-        self:markDirty()
+        self.dirty = true
+        self._tick_cache = nil
     end)
 end
 Bookends.onFrontlightStateChanged = Bookends.delayedRepaint
@@ -2715,7 +2726,10 @@ function Bookends:editLineString(pos, line_idx, touchmenu_instance)
     local line_bar_height = pos_settings.line_bar_height[line_idx] -- nil = use font size
     local line_bar_style = pos_settings.line_bar_style[line_idx] -- nil = "bordered"
 
-    -- Live preview: write current local state to settings and repaint
+    -- Live preview: write current local state to settings and repaint.
+    -- Repaint immediately (not via nextTick) so it merges into the same
+    -- paint cycle as the dialog's own refresh, avoiding a separate e-ink
+    -- refresh that flashes book text through the Bookends area.
     local function applyLivePreview()
         pos_settings.line_style[line_idx] = line_style ~= "regular" and line_style or nil
         pos_settings.line_font_size[line_idx] = line_size
@@ -2727,7 +2741,9 @@ function Bookends:editLineString(pos, line_idx, touchmenu_instance)
         pos_settings.line_bar_type[line_idx] = line_bar_type
         pos_settings.line_bar_height[line_idx] = line_bar_height
         pos_settings.line_bar_style[line_idx] = line_bar_style
-        self:markDirty()
+        self.dirty = true
+        self._tick_cache = nil
+        UIManager:setDirty(self.ui, "fast")
     end
 
     -- Style cycle button
@@ -3057,7 +3073,13 @@ function Bookends:editLineString(pos, line_idx, touchmenu_instance)
             local live_text = format_dialog:getInputText()
             if live_text and live_text ~= "" then
                 pos_settings.lines[line_idx] = live_text
-                self:markDirty()
+                -- Mark dirty and request repaint immediately (not via nextTick)
+                -- so it merges into the InputDialog's own paint cycle.  A deferred
+                -- repaint causes a *separate* e-ink refresh that briefly flashes
+                -- book text through the Bookends area.
+                self.dirty = true
+                self._tick_cache = nil
+                UIManager:setDirty(self.ui, "fast")
             end
         end,
         buttons = buildDialogButtons(),
