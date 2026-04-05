@@ -135,8 +135,8 @@ function Bookends:init()
     self.ui.view:registerViewModule("bookends", self)
     self.session_elapsed = 0
     self.session_resume_time = os.time()
-    self.session_start_page = nil -- set on first onPageUpdate (stable or raw per setting)
-    self.session_max_page = nil   -- highest page reached (stable or raw per setting)
+    self.session_start_page = nil -- raw page, set on first onPageUpdate
+    self.session_max_page = nil   -- highest raw page reached
     self.dirty = true
     self.position_cache = {}
 
@@ -751,7 +751,7 @@ end
 
 -- Event handlers
 function Bookends:onPageUpdate()
-    local current = self:getSessionPageNumber()
+    local current = self.ui.view.state.page
     if current then
         if not self.session_start_page then
             self.session_start_page = current
@@ -792,20 +792,6 @@ Bookends.onNotCharging            = Bookends.delayedRepaint
 Bookends.onNetworkConnected       = Bookends.delayedRepaint
 Bookends.onNetworkDisconnected    = Bookends.delayedRepaint
 Bookends.onAnnotationsModified = Bookends.delayedRepaint
-function Bookends:getSessionPageNumber()
-    local pageno = self.ui.view.state.page
-    if not pageno then return nil end
-    -- Use stable page numbers when available (pagemap index or flow-aware)
-    if self.ui.pagemap and self.ui.pagemap:wantsPageLabels() then
-        local _label, idx, _count = self.ui.pagemap:getCurrentPageLabel(true)
-        if idx then return idx end
-    end
-    local doc = self.ui.document
-    if doc and doc:hasHiddenFlows() then
-        return doc:getPageNumberInFlow(pageno)
-    end
-    return pageno
-end
 function Bookends:getSessionElapsed()
     local elapsed = self.session_elapsed or 0
     if self.session_resume_time then
