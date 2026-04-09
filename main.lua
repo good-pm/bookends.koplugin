@@ -1676,7 +1676,7 @@ function Bookends:buildMainMenu()
                         local current = Updater.getInstalledVersion()
                         local available = Updater.getAvailableUpdate()
                         if available then
-                            return "v" .. current .. " \xE2\x86\x92 v" .. available
+                            return _("Update available") .. ": v" .. current .. " \xE2\x86\x92 v" .. available
                         end
                         return _("Check for updates") .. " (v" .. current .. ")"
                     end,
