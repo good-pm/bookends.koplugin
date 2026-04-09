@@ -58,7 +58,170 @@ function Tokens.computeTickFractions(doc, toc, tick_width_multiplier)
     return ticks
 end
 
+--- Parse a comparison value, handling HH:MM time format as minutes since midnight.
+local function parseNumericValue(val)
+    local h, m = val:match("^(%d+):(%d+)$")
+    if h and m then
+        return tonumber(h) * 60 + tonumber(m)
+    end
+    return tonumber(val)
+end
+
+--- Evaluate a single condition string against a state table.
+-- Supports operators =, <, > for comparisons.
+-- Without an operator, checks if the value is truthy (non-nil, non-empty, non-zero, not "off"/"no").
+local function evaluateCondition(cond_str, state)
+    -- Try operator: key=value, key<value, key>value
+    local key, op, value = cond_str:match("^(%w+)([=<>])(.+)$")
+    if key and op and value then
+        local state_val = state[key]
+        if state_val == nil then return false end
+        -- Try numeric comparison (supports HH:MM → minutes)
+        local num_state = tonumber(state_val)
+        local num_val = parseNumericValue(value)
+        if op == "=" then
+            if num_state and num_val then return num_state == num_val end
+            return tostring(state_val) == value
+        end
+        if not num_state or not num_val then return false end
+        if op == "<" then return num_state < num_val end
+        if op == ">" then return num_state > num_val end
+        return false
+    end
+    -- No operator: truthy check
+    local key_only = cond_str:match("^(%w+)$")
+    if key_only then
+        local v = state[key_only]
+        return v ~= nil and v ~= "" and v ~= false and v ~= 0 and v ~= "off" and v ~= "no"
+    end
+    return false
+end
+
+--- Process [if:condition]...[else]...[/if] blocks in a format string.
+local function processConditionals(format_str, state)
+    return format_str:gsub("%[if:([^%]]+)%](.-)%[/if%]", function(cond, body)
+        local if_part, else_part = body:match("^(.-)%[else%](.*)$")
+        if not if_part then
+            if_part = body
+            else_part = ""
+        end
+        if evaluateCondition(cond, state) then
+            return if_part
+        else
+            return else_part
+        end
+    end)
+end
+
+--- Build a state table of raw values for conditional evaluation.
+function Tokens.buildConditionState(ui, session_elapsed, session_pages_read)
+    local state = {}
+
+    -- WiFi
+    local ok, NetworkMgr = pcall(require, "ui/network/manager")
+    if ok and NetworkMgr then
+        state.wifi = NetworkMgr:isWifiOn() and "on" or "off"
+        state.connected = (NetworkMgr:isWifiOn() and NetworkMgr:isConnected()) and "yes" or "no"
+    end
+
+    -- Battery & charging
+    local powerd = Device:getPowerDevice()
+    if powerd then
+        state.batt = powerd:getCapacity() or 0
+        state.charging = (powerd:isCharging() or powerd:isCharged()) and "yes" or "no"
+        state.light = powerd:frontlightIntensity() > 0 and "on" or "off"
+    end
+
+    -- Page-based state
+    local pageno = ui.view and ui.view.state and ui.view.state.page
+    local doc = ui.document
+    if pageno and doc then
+        -- Book percent
+        if doc:hasHiddenFlows() then
+            local flow = doc:getPageFlow(pageno)
+            local flow_page = doc:getPageNumberInFlow(pageno)
+            local flow_total = doc:getTotalPagesInFlow(flow)
+            if flow_total and flow_total > 0 then
+                state.percent = math.floor(flow_page / flow_total * 100 + 0.5)
+            end
+        else
+            local raw_total = doc:getPageCount()
+            if raw_total and raw_total > 0 then
+                state.percent = math.floor(pageno / raw_total * 100 + 0.5)
+            end
+        end
+
+        -- Chapter percent
+        if ui.toc then
+            local chapter_start = ui.toc:getPreviousChapter(pageno)
+            if ui.toc:isChapterStart(pageno) then
+                chapter_start = pageno
+            end
+            if chapter_start then
+                local next_chapter = ui.toc:getNextChapter(pageno)
+                local chapter_end = next_chapter or (doc:getPageCount() + 1)
+                local total = chapter_end - chapter_start
+                if total > 1 then
+                    state.chapter = math.floor((pageno - chapter_start) / (total - 1) * 100)
+                elseif total > 0 then
+                    state.chapter = 100
+                end
+            end
+        end
+
+        -- Odd/even page
+        state.page = (pageno % 2 == 1) and "odd" or "even"
+    end
+
+    -- Document format
+    local doc = ui.document
+    if doc and doc.file then
+        state.format = (doc.file:match("%.([^.]+)$") or ""):upper()
+    end
+
+    -- Time (minutes since midnight, compare with HH:MM or raw minutes)
+    local now = os.date("*t")
+    state.time = now.hour * 60 + now.min
+
+    -- Day of week (locale-independent)
+    local weekdays = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+    state.day = weekdays[now.wday]
+
+    -- Session
+    state.session = session_elapsed and math.floor(session_elapsed / 60) or 0
+    state.pages = math.max(0, session_pages_read or 0)
+
+    -- Reading speed (pages/hr)
+    if session_elapsed and session_elapsed > 60 and (session_pages_read or 0) > 0 then
+        state.speed = math.floor(session_pages_read / session_elapsed * 3600)
+    elseif ui.statistics and ui.statistics.avg_time then
+        local avg = ui.statistics.avg_time
+        if avg and avg > 0 then
+            state.speed = math.floor(3600 / avg)
+        end
+    end
+    state.speed = state.speed or 0
+
+    return state
+end
+
 function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, preview_mode, tick_width_multiplier)
+    -- Fast path: no tokens or conditionals
+    if not format_str:find("%%") and not format_str:find("%[if:") then
+        return format_str
+    end
+
+    -- Process conditionals before token expansion (skip in preview mode)
+    if not preview_mode and format_str:find("%[if:") then
+        local state = Tokens.buildConditionState(ui, session_elapsed, session_pages_read)
+        format_str = processConditionals(format_str, state)
+        -- After stripping false branches, check if anything remains to expand
+        if not format_str:find("%%") then
+            local is_empty = format_str:match("^%s*$") ~= nil
+            return format_str, is_empty
+        end
+    end
+
     -- Fast path: no tokens
     if not format_str:find("%%") then
         return format_str

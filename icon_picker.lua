@@ -176,7 +176,9 @@ function IconPicker.showPickerMenu(title, items, on_choice)
         height = math.floor(Screen:getHeight() * 0.8),
         items_per_page = 14,
         onMenuChoice = function(_, item)
-            if item.insert_value then
+            if item.callback then
+                item.callback(menu)
+            elseif item.insert_value then
                 UIManager:close(menu)
                 on_choice(item)
             end

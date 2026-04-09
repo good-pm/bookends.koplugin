@@ -3173,9 +3173,23 @@ function Bookends:editLineString(pos, line_idx, touchmenu_instance)
         return rows
     end
 
+    -- Measure line height for the InputDialog's default font to set a 3-line text area
+    local input_face = Font:getFace("x_smallinfofont")
+    local TextBoxWidget = require("ui/widget/textboxwidget")
+    local measure = TextBoxWidget:new{
+        text = "M",
+        face = input_face,
+        width = Screen:getWidth(),
+        for_measurement_only = true,
+    }
+    local input_text_height = measure:getLineHeight() * 2
+    measure:free(true)
+
     format_dialog = InputDialog:new{
         title = pos.label .. " \xE2\x80\x94 " .. _("Line") .. " " .. line_idx,
         input = current_text,
+        allow_newline = true,
+        text_height = input_text_height,
         edited_callback = function()
             -- Live preview of text changes (guard: fires during init before format_dialog is assigned)
             if not format_dialog then return end
@@ -3796,15 +3810,44 @@ Bookends.TOKEN_CATALOG = {
     }},
 }
 
-function Bookends:showTokenPicker(on_select)
-    local IconPicker = require("icon_picker")
+Bookends.CONDITIONAL_CATALOG = {
+    { _("Examples"), {
+        { "[if:wifi=on]%W[/if]", _("Show wifi icon when connected") },
+        { "[if:batt<20]LOW %b[/if]", _("Warning when battery below 20%") },
+        { "[if:charging=yes]\xE2\x9A\xA1[/if] %b", _("Bolt icon when charging") },
+        { "[if:speed>0]%r pg/hr[/if]", _("Speed, hidden until calculated") },
+        { "[if:session>0]%R[/if]", _("Session time, hidden at start") },
+        { "[if:page=odd]%c[else]%c[/if]", _("Different content on odd/even pages") },
+        { "[if:percent>90]Almost done![/if]", _("Message near end of book") },
+        { "[if:light=off]Light off[else]Light on[/if]", _("Frontlight status") },
+        { "[if:format=PDF]%c / %t[/if]", _("Only show for PDF documents") },
+        { "[if:time>22:00]Late night reading![/if]", _("After 10pm") },
+        { "[if:day=Sat]Weekend![else]%a[/if]", _("Different text on Saturdays") },
+    }},
+    { _("Reference"), {
+        { "[if:wifi=on]...[/if]", _("wifi — on / off") },
+        { "[if:connected=yes]...[/if]", _("connected — yes / no") },
+        { "[if:batt<50]...[/if]", _("batt — 0 to 100") },
+        { "[if:charging=yes]...[/if]", _("charging — yes / no") },
+        { "[if:percent>50]...[/if]", _("percent — 0 to 100 (book)") },
+        { "[if:chapter>50]...[/if]", _("chapter — 0 to 100 (chapter)") },
+        { "[if:speed>0]...[/if]", _("speed — pages per hour") },
+        { "[if:session>30]...[/if]", _("session — minutes reading") },
+        { "[if:pages>0]...[/if]", _("pages — session pages read") },
+        { "[if:page=odd]...[/if]", _("page — odd / even") },
+        { "[if:light=on]...[/if]", _("light — on / off") },
+        { "[if:format=EPUB]...[/if]", _("format — EPUB / PDF / CBZ etc.") },
+        { "[if:time>18:00]...[/if]", _("time — use HH:MM (24h)") },
+        { "[if:day=Mon]...[/if]", _("day — Mon Tue Wed Thu Fri Sat Sun") },
+    }},
+}
 
-    -- Resolve current values for each token
+function Bookends:buildTokenItems(catalog, on_select)
+    local IconPicker = require("icon_picker")
     local session_elapsed = self:getSessionElapsed()
     local session_pages = self:getSessionPages()
-
     local items = {}
-    for _, category in ipairs(self.TOKEN_CATALOG) do
+    for _, category in ipairs(catalog) do
         local label = category[1]
         local tokens = category[2]
         table.insert(items, {
@@ -3815,7 +3858,6 @@ function Bookends:showTokenPicker(on_select)
         for _, token_entry in ipairs(tokens) do
             local token = token_entry[1]
             local desc = token_entry[2]
-            -- Expand the token to get its current value
             local current = ""
             if self.ui then
                 local expanded = Tokens.expand(token, self.ui, session_elapsed, session_pages,
@@ -3834,6 +3876,34 @@ function Bookends:showTokenPicker(on_select)
             })
         end
     end
+    return items
+end
+
+function Bookends:showTokenPicker(on_select)
+    local IconPicker = require("icon_picker")
+    local items = self:buildTokenItems(self.TOKEN_CATALOG, on_select)
+
+    -- Insert "Conditionals →" at the top, opening a sub-picker
+    table.insert(items, 1, {
+        text = _("If/Else conditional tokens") .. " \xE2\x96\xB8",
+        callback = function(parent_menu)
+            UIManager:close(parent_menu)
+            -- Help text at the top
+            local dim = function() end
+            local cond_items = {
+                { text = _("[if:key=value]show when true[/if]"), dim = true, callback = dim },
+                { text = _("[if:key=value]if true[else]if false[/if]"), dim = true, callback = dim },
+                { text = _("Operators:  =  <  >"), dim = true, callback = dim },
+            }
+            -- Append catalog items
+            for _, item in ipairs(self:buildTokenItems(self.CONDITIONAL_CATALOG, on_select)) do
+                table.insert(cond_items, item)
+            end
+            IconPicker.showPickerMenu(_("Insert conditional"), cond_items, function(item)
+                on_select(item.insert_value)
+            end)
+        end,
+    })
 
     IconPicker.showPickerMenu(_("Insert token"), items, function(item)
         on_select(item.insert_value)

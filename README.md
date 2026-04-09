@@ -154,6 +154,43 @@ Progress on EPUB documents updates smoothly per screen turn using pixel-level po
 - **Odd/even pages** — Set any line to appear on all pages, odd pages only, or even pages only
 - **Auto-refresh** — Clock and other dynamic tokens update every 60 seconds
 
+### Conditional tokens
+
+Show or hide content based on device state, reading progress, time, and more using `[if:condition]...[/if]` blocks with optional `[else]`:
+
+```
+[if:wifi=on]📶[/if]
+[if:batt<20]LOW %b[/if]
+[if:charging=yes]⚡[/if] %b
+[if:page=odd]%T[else]%C[/if]
+[if:percent>90]Almost done![/if]
+[if:time>22:00]Late night reading![/if]
+[if:day=Sat]Weekend![else]%a[/if]
+[if:speed>0]%r pg/hr[/if]
+[if:format=PDF]%c / %t[/if]
+```
+
+Operators: `=` (equals), `<` (less than), `>` (greater than).
+
+| Condition | Values | Description |
+|-----------|--------|-------------|
+| `wifi` | on / off | Wi-Fi radio state |
+| `connected` | yes / no | Network connection state |
+| `batt` | 0–100 | Battery percentage |
+| `charging` | yes / no | Charging or charged |
+| `percent` | 0–100 | Book progress percentage |
+| `chapter` | 0–100 | Chapter progress percentage |
+| `speed` | pages/hr | Reading speed |
+| `session` | minutes | Session reading time |
+| `pages` | count | Session pages read |
+| `page` | odd / even | Current page parity |
+| `light` | on / off | Frontlight state |
+| `format` | EPUB / PDF / CBZ… | Document format |
+| `time` | HH:MM (24h) | Time of day |
+| `day` | Mon–Sun | Day of week |
+
+Conditions evaluate live — the charging icon appears the moment you plug in, the wifi icon vanishes when you disconnect. The token picker has a dedicated **If/Else conditional tokens** submenu with syntax help, examples, and a complete reference.
+
 ### Icons
 
 The **Icons** button in the line editor opens a picker with categorised glyphs from the Nerd Fonts set (bundled with KOReader). Categories include:
