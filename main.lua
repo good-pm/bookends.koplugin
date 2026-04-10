@@ -188,6 +188,9 @@ function Bookends:init()
 
     -- Register hold-to-skim touch zone
     self:setupTouchZones()
+
+    -- Background update check on book open (opt-in only, throttled to once/hour)
+    self:backgroundUpdateCheck()
 end
 
 function Bookends:onDispatcherRegisterActions()
@@ -336,6 +339,7 @@ function Bookends:loadSettings()
     }
 
     self.skim_on_hold = self.settings:readSetting("skim_on_hold", true)
+    self.check_updates = self.settings:readSetting("check_updates", false)
 
     -- Default position configurations (used on first run)
     local default_positions = {
@@ -919,6 +923,7 @@ function Bookends:onResume()
             self:markDirty()
         end)
     end
+    self:backgroundUpdateCheck()
 end
 
 function Bookends:paintTo(bb, x, y)
@@ -1546,7 +1551,6 @@ function Bookends:buildMainMenu()
     -- Settings submenu
     table.insert(menu, {
         text_func = function()
-            Updater.checkBackground()
             if Updater.getAvailableUpdate() then
                 return _("Settings") .. " (" .. _("plugin update available") .. ")"
             end
@@ -1690,14 +1694,23 @@ function Bookends:buildMainMenu()
                     end,
                 },
                 {
+                    text = _("Notify on wake when update available"),
+                    checked_func = function()
+                        return self.check_updates
+                    end,
+                    callback = function()
+                        self.check_updates = not self.check_updates
+                        self.settings:saveSetting("check_updates", self.check_updates)
+                    end,
+                },
+                {
                     text_func = function()
-                        Updater.checkBackground()
                         local current = Updater.getInstalledVersion()
                         local available = Updater.getAvailableUpdate()
                         if available then
                             return _("Update available") .. ": v" .. current .. " \xE2\x86\x92 v" .. available
                         end
-                        return _("Check for updates") .. " (v" .. current .. ")"
+                        return _("Installed version") .. ": v" .. current
                     end,
                     keep_menu_open = true,
                     callback = function()
@@ -3961,6 +3974,15 @@ end
 
 function Bookends:checkForUpdates()
     Updater.check()
+end
+
+function Bookends:backgroundUpdateCheck()
+    if not self.check_updates then return end
+    Updater.checkBackground(function(ver)
+        local Notification = require("ui/widget/notification")
+        Notification:notify(_("Bookends update available: v") .. ver,
+            Notification.SOURCE_ALWAYS_SHOW)
+    end)
 end
 
 

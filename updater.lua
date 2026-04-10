@@ -110,8 +110,9 @@ function Updater.getAvailableUpdate()
 end
 
 --- Fire a silent background update check if the cache is stale (>1h or never checked).
--- No UI shown on success or failure. Results available via getAvailableUpdate().
-function Updater.checkBackground()
+-- Results available via getAvailableUpdate().
+-- @param on_update_found function(version): optional callback when a new version is discovered
+function Updater.checkBackground(on_update_found)
     if _check_in_flight then return end
     local now = os.time()
     if _last_check_time and (now - _last_check_time) < CHECK_INTERVAL then return end
@@ -147,6 +148,9 @@ function Updater.checkBackground()
                         break
                     end
                 end
+            end
+            if on_update_found then
+                on_update_found(ver)
             end
         else
             _cached_version = nil
