@@ -10,8 +10,13 @@ local OverlayWidget = {}
 -- Default TextWidget options for overlay text.
 -- use_book_text_color ensures text matches the book's color scheme
 -- (compatible with color theme patches like koreader-color-themes).
-local function textWidgetOpts(t)
-    t.use_book_text_color = true
+-- When fgcolor is provided, use it instead (disabling use_book_text_color).
+local function textWidgetOpts(t, fgcolor)
+    if fgcolor then
+        t.fgcolor = fgcolor
+    else
+        t.use_book_text_color = true
+    end
     return t
 end
 
@@ -248,11 +253,12 @@ local function buildBarLine(text, cfg, available_w, max_width)
     local function addTextSegment(t)
         if t == "" then return end
         local display = cfg.uppercase and Utf8Proc.uppercase_dumb(t) or t
-        local tw = TextWidget:new(textWidgetOpts{
+        local text_fgcolor = cfg.text_color and Blitbuffer.Color8(cfg.text_color.grey) or nil
+        local tw = TextWidget:new(textWidgetOpts({
             text = display,
             face = cfg.face,
             bold = cfg.bold,
-        })
+        }, text_fgcolor))
         local size = tw:getSize()
         table.insert(segments, { widget = tw, w = size.w, h = size.h })
         total_w = total_w + size.w
@@ -272,7 +278,7 @@ local function buildBarLine(text, cfg, available_w, max_width)
 
     -- Ensure row height matches font line height for consistent vertical alignment
     if text_total_w == 0 and cfg.face then
-        local ref_tw = TextWidget:new(textWidgetOpts{ text = " ", face = cfg.face, bold = cfg.bold })
+        local ref_tw = TextWidget:new(textWidgetOpts({ text = " ", face = cfg.face, bold = cfg.bold }))
         local ref_h = ref_tw:getSize().h
         ref_tw:free()
         if ref_h > max_h then max_h = ref_h end
@@ -359,13 +365,14 @@ function OverlayWidget.buildTextWidget(text, line_configs, h_anchor, max_width, 
         end
         -- Plain text — fast path
         local display_text = cfg.uppercase and Utf8Proc.uppercase_dumb(lines[1]) or lines[1]
-        local tw = TextWidget:new(textWidgetOpts{
+        local text_fgcolor = cfg.text_color and Blitbuffer.Color8(cfg.text_color.grey) or nil
+        local tw = TextWidget:new(textWidgetOpts({
             text = display_text,
             face = cfg.face,
             bold = cfg.bold,
             max_width = max_width,
             truncate_with_ellipsis = max_width ~= nil,
-        })
+        }, text_fgcolor))
         local size = tw:getSize()
         return tw, size.w, size.h
     end
@@ -392,13 +399,14 @@ function OverlayWidget.buildTextWidget(text, line_configs, h_anchor, max_width, 
             widget, w, h = buildBarLine(line, cfg, available_w or Screen:getWidth(), max_width)
         else
             local display_text = cfg.uppercase and Utf8Proc.uppercase_dumb(line) or line
-            widget = TextWidget:new(textWidgetOpts{
+            local text_fgcolor = cfg.text_color and Blitbuffer.Color8(cfg.text_color.grey) or nil
+            widget = TextWidget:new(textWidgetOpts({
                 text = display_text,
                 face = cfg.face,
                 bold = cfg.bold,
                 max_width = max_width,
                 truncate_with_ellipsis = max_width ~= nil,
-            })
+            }, text_fgcolor))
             local size = widget:getSize()
             w, h = size.w, size.h
         end
@@ -528,6 +536,7 @@ function OverlayWidget.parseStyledSegments(text, base_bold, base_italic, base_up
 
     local segments = {}
     local stack = {}  -- style stack: each entry is "b", "i", or "u"
+    local color_stack = {}  -- color stack: each entry is a {grey=N} table
     local pos = 1
     local pending = ""  -- accumulates text between tags
     local found_tags = false
@@ -548,10 +557,18 @@ function OverlayWidget.parseStyledSegments(text, base_bold, base_italic, base_up
         return bold, italic, uppercase
     end
 
+    local function currentColor()
+        if #color_stack == 0 then return nil end
+        return color_stack[#color_stack]
+    end
+
     local function flushPending()
         if pending == "" then return end
         local bold, italic, uppercase = currentStyle()
-        table.insert(segments, { text = pending, bold = bold, italic = italic, uppercase = uppercase })
+        local seg = { text = pending, bold = bold, italic = italic, uppercase = uppercase }
+        local clr = currentColor()
+        if clr then seg.color = clr end
+        table.insert(segments, seg)
         pending = ""
     end
 
@@ -581,6 +598,36 @@ function OverlayWidget.parseStyledSegments(text, base_bold, base_italic, base_up
             table.insert(stack, tag)
             found_tags = true
             pos = pos + 3  -- [b] = 3 chars
+        -- Check for closing colour tag [/c]
+        elseif text:match("^%[/c%]", pos) then
+            if #color_stack > 0 then
+                flushPending()
+                table.remove(color_stack)
+                found_tags = true
+                pos = pos + 4  -- [/c] = 4 chars
+            else
+                -- Mismatched close — render entire line as plain text
+                return nil, false
+            end
+        -- Check for opening colour tag [c=N] where N is 0-100
+        elseif text:match("^%[c=%d+%]", pos) then
+            local val_str, end_pos = text:match("^%[c=(%d+)()%]", pos)
+            if val_str then
+                local pct = tonumber(val_str)
+                if pct and pct >= 0 and pct <= 100 then
+                    flushPending()
+                    local grey = 0xFF - math.floor(pct * 0xFF / 100 + 0.5)
+                    table.insert(color_stack, { grey = grey })
+                    found_tags = true
+                    pos = end_pos + 1  -- skip past the ']'
+                else
+                    pending = pending .. text:sub(pos, pos)
+                    pos = pos + 1
+                end
+            else
+                pending = pending .. text:sub(pos, pos)
+                pos = pos + 1
+            end
         else
             pending = pending .. text:sub(pos, pos)
             pos = pos + 1
@@ -591,6 +638,9 @@ function OverlayWidget.parseStyledSegments(text, base_bold, base_italic, base_up
 
     -- Unclosed tags — return nil to signal: render entire line as plain text
     if #stack > 0 then
+        return nil, false
+    end
+    if #color_stack > 0 then
         return nil, false
     end
 
@@ -652,13 +702,21 @@ function OverlayWidget.buildStyledLine(segments, cfg, available_w, max_width)
                     seg_max_width = remaining
                 end
 
-                local tw = TextWidget:new(textWidgetOpts{
+                -- Resolve segment colour: BBCode [c] tag → global text_color → nil (book colour)
+                local seg_fgcolor = nil
+                if seg.color then
+                    seg_fgcolor = Blitbuffer.Color8(seg.color.grey)
+                elseif cfg.text_color then
+                    seg_fgcolor = Blitbuffer.Color8(cfg.text_color.grey)
+                end
+
+                local tw = TextWidget:new(textWidgetOpts({
                     text = display,
                     face = seg_face,
                     bold = seg_synthetic_bold,
                     max_width = seg_max_width,
                     truncate_with_ellipsis = seg_max_width ~= nil,
-                })
+                }, seg_fgcolor))
                 local size = tw:getSize()
                 table.insert(widgets, { widget = tw, w = size.w, h = size.h })
                 total_w = total_w + size.w
@@ -670,7 +728,7 @@ function OverlayWidget.buildStyledLine(segments, cfg, available_w, max_width)
 
     -- Ensure row height from font even if no text segments
     if text_total_w == 0 and cfg.face then
-        local ref_tw = TextWidget:new(textWidgetOpts{ text = " ", face = cfg.face, bold = cfg.bold })
+        local ref_tw = TextWidget:new(textWidgetOpts({ text = " ", face = cfg.face, bold = cfg.bold }))
         local ref_h = ref_tw:getSize().h
         ref_tw:free()
         if ref_h > max_h then max_h = ref_h end
@@ -843,6 +901,8 @@ function OverlayWidget.paintProgressBar(bb, x, y, w, h, fraction, ticks, style, 
     local custom_tick = colors and colors.tick
     local invert_read_ticks = colors and colors.invert_read_ticks
     local tick_height_pct = colors and colors.tick_height_pct or 100
+    local custom_border = colors and colors.border
+    local custom_invert = colors and colors.invert
 
     -- Resolve custom color: false → nil (transparent/skip), nil → default, else custom.
     -- Must use type() checks to avoid triggering Blitbuffer's __eq metamethod.
@@ -937,7 +997,7 @@ function OverlayWidget.paintProgressBar(bb, x, y, w, h, fraction, ticks, style, 
         local ring_border = line_thick
         local inner_r = start_r - ring_border
         if inner_r > 0 then
-            paintCircle(start_cx + ring_border, oy + ring_border, inner_r, Blitbuffer.COLOR_WHITE)
+            paintCircle(start_cx + ring_border, oy + ring_border, inner_r, resolveColor(custom_invert, Blitbuffer.COLOR_WHITE))
         end
 
         -- End circle (filled, trunk colour, same size as start)
@@ -1028,7 +1088,7 @@ function OverlayWidget.paintProgressBar(bb, x, y, w, h, fraction, ticks, style, 
                 if base_tick then
                     local tick_color
                     if invert_read_ticks ~= false and in_fill then
-                        tick_color = Blitbuffer.COLOR_WHITE
+                        tick_color = resolveColor(custom_invert, Blitbuffer.COLOR_WHITE)
                     else
                         tick_color = base_tick
                     end
@@ -1076,7 +1136,7 @@ function OverlayWidget.paintProgressBar(bb, x, y, w, h, fraction, ticks, style, 
                 if base_tick then
                     local tick_color
                     if invert_read_ticks ~= false and in_fill then
-                        tick_color = Blitbuffer.COLOR_WHITE
+                        tick_color = resolveColor(custom_invert, Blitbuffer.COLOR_WHITE)
                     else
                         tick_color = base_tick
                     end
@@ -1155,13 +1215,18 @@ function OverlayWidget.paintProgressBar(bb, x, y, w, h, fraction, ticks, style, 
             end
         end
         -- Border on top
+        local border_color = resolveColor(custom_border, Blitbuffer.COLOR_BLACK)
         if radius > 0 then
-            bb:paintBorder(x, y, w, h, border, Blitbuffer.COLOR_BLACK, radius)
+            if border_color then
+                bb:paintBorder(x, y, w, h, border, border_color, radius)
+            end
         else
-            bb:paintRect(x, y, w, border, Blitbuffer.COLOR_BLACK)
-            bb:paintRect(x, y + h - border, w, border, Blitbuffer.COLOR_BLACK)
-            bb:paintRect(x, y, border, h, Blitbuffer.COLOR_BLACK)
-            bb:paintRect(x + w - border, y, border, h, Blitbuffer.COLOR_BLACK)
+            if border_color then
+                bb:paintRect(x, y, w, border, border_color)
+                bb:paintRect(x, y + h - border, w, border, border_color)
+                bb:paintRect(x, y, border, h, border_color)
+                bb:paintRect(x + w - border, y, border, h, border_color)
+            end
         end
         -- Chapter ticks
         if inner_len > 0 and inner_thick > 0 then

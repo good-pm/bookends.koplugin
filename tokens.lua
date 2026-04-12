@@ -205,7 +205,7 @@ function Tokens.buildConditionState(ui, session_elapsed, session_pages_read)
     return state
 end
 
-function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, preview_mode, tick_width_multiplier)
+function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, preview_mode, tick_width_multiplier, symbol_color)
     -- Fast path: no tokens or conditionals
     if not format_str:find("%%") and not format_str:find("%[if:") then
         return format_str
@@ -743,6 +743,7 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         ["%M"] = ram_mb,
         ["%v"] = disk_avail,
     }
+    -- (symbol_color wrapping happens after token expansion — see below)
     -- Track whether all tokens in the string resolved to empty or "0"
     local has_token = false
     local all_empty = true
@@ -779,13 +780,24 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         return num == "1" and num .. between or num .. between .. "s"
     end)
 
+    -- Wrap Private Use Area characters (U+E000-U+F8FF) with symbol colour.
+    -- These are icon font glyphs (Nerd Fonts, FontAwesome) — never regular text.
+    -- Detection is by UTF-8 byte pattern: 0xEE xx xx = U+E000-U+EFFF,
+    -- 0xEF [0x80-0xA3] xx = U+F000-U+F8FF.
+    if symbol_color and symbol_color.grey then
+        local pct = math.floor((0xFF - symbol_color.grey) * 100 / 0xFF + 0.5)
+        local wrap = "[c=" .. pct .. "]%1[/c]"
+        result = result:gsub("(\xEE[\x80-\xBF][\x80-\xBF])", wrap)
+        result = result:gsub("(\xEF[\x80-\xA3][\x80-\xBF])", wrap)
+    end
+
     -- A line with a bar token is never considered empty
     local is_empty = has_token and all_empty and not bar_info
     return result, is_empty, bar_info
 end
 
-function Tokens.expandPreview(format_str, ui, session_elapsed, session_pages_read, tick_width_multiplier)
-    return Tokens.expand(format_str, ui, session_elapsed, session_pages_read, true, tick_width_multiplier)
+function Tokens.expandPreview(format_str, ui, session_elapsed, session_pages_read, tick_width_multiplier, symbol_color)
+    return Tokens.expand(format_str, ui, session_elapsed, session_pages_read, true, tick_width_multiplier, symbol_color)
 end
 
 return Tokens

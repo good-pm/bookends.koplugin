@@ -436,6 +436,8 @@ function Bookends:buildPreset()
     preset.bar_colors = self.settings:readSetting("bar_colors")
     preset.tick_width_multiplier = self.settings:readSetting("tick_width_multiplier")
     preset.tick_height_pct = self.settings:readSetting("tick_height_pct")
+    preset.text_color = self.settings:readSetting("text_color")
+    preset.symbol_color = self.settings:readSetting("symbol_color")
     return preset
 end
 
@@ -511,6 +513,16 @@ function Bookends:loadPreset(preset)
         self.settings:saveSetting("tick_height_pct", preset.tick_height_pct)
     else
         self.settings:delSetting("tick_height_pct")
+    end
+    if preset.text_color then
+        self.settings:saveSetting("text_color", preset.text_color)
+    else
+        self.settings:delSetting("text_color")
+    end
+    if preset.symbol_color then
+        self.settings:saveSetting("symbol_color", preset.symbol_color)
+    else
+        self.settings:delSetting("symbol_color")
     end
     self._tick_cache = nil
     self:markDirty()
@@ -993,6 +1005,13 @@ function Bookends:_paintToInner(bb, x, y)
         local Blitbuffer = require("ffi/blitbuffer")
         local function colorOrTransparent(v)
             if not v then return nil end
+            if type(v) == "table" then
+                if v.grey then
+                    if v.grey >= 0xFF then return false end
+                    return Blitbuffer.Color8(v.grey)
+                end
+                return nil
+            end
             if v >= 0xFF then return false end
             return Blitbuffer.Color8(v)
         end
@@ -1001,6 +1020,8 @@ function Bookends:_paintToInner(bb, x, y)
             bg = colorOrTransparent(bc.bg),
             track = colorOrTransparent(bc.track),
             tick = colorOrTransparent(bc.tick),
+            border = colorOrTransparent(bc.border),
+            invert = colorOrTransparent(bc.invert),
             invert_read_ticks = bc.invert_read_ticks,
             tick_height_pct = bc.tick_height_pct,
         }
@@ -1010,9 +1031,12 @@ function Bookends:_paintToInner(bb, x, y)
     local bar_colors
     local bc = self.settings:readSetting("bar_colors") or {}
     bc.tick_height_pct = global_tick_height_pct or bc.tick_height_pct
-    if bc.fill or bc.bg or bc.track or bc.tick or bc.invert_read_ticks ~= nil or bc.tick_height_pct then
+    if bc.fill or bc.bg or bc.track or bc.tick or bc.invert_read_ticks ~= nil or bc.tick_height_pct or bc.border or bc.invert then
         bar_colors = resolveColors(bc)
     end
+    -- Text/icon colours from settings
+    local text_color = self.settings:readSetting("text_color")  -- {grey=N} or nil
+    local symbol_color = self.settings:readSetting("symbol_color")  -- {grey=N} or nil
     for bar_idx, bar_cfg in ipairs(self.progress_bars or {}) do
         if bar_cfg.enabled then
             local anchor = bar_cfg.v_anchor or "bottom"
@@ -1171,7 +1195,8 @@ function Bookends:_paintToInner(bb, x, y)
                 local position_bars = {}
                 for j, line in ipairs(visible_lines) do
                     local result, is_empty, line_bar = Tokens.expand(line, self.ui, session_elapsed, session_pages,
-                        nil, self.settings:readSetting("tick_width_multiplier", self.DEFAULT_TICK_WIDTH_MULTIPLIER))
+                        nil, self.settings:readSetting("tick_width_multiplier", self.DEFAULT_TICK_WIDTH_MULTIPLIER),
+                        symbol_color)
                     if not is_empty then
                         table.insert(expanded_lines, result)
                         table.insert(final_indices, visible_indices[j])
@@ -1249,6 +1274,7 @@ function Bookends:_paintToInner(bb, x, y)
             cfg.v_nudge = (pos_settings.line_v_nudge and pos_settings.line_v_nudge[i]) or 0
             cfg.h_nudge = (pos_settings.line_h_nudge and pos_settings.line_h_nudge[i]) or 0
             cfg.uppercase = (pos_settings.line_uppercase and pos_settings.line_uppercase[i]) or false
+            cfg.text_color = text_color
             -- Bar data (keyed by expanded line index, same order as line_configs)
             local expanded_idx = #line_configs + 1
             if bar_data[key] and bar_data[key][expanded_idx] then
@@ -1679,9 +1705,9 @@ function Bookends:buildMainMenu()
                     end,
                 },
                 {
-                    text = _("Progress bar colours and tick marks"),
+                    text = _("Colors and tick marks"),
                     sub_item_table_func = function()
-                        return self:buildBarColorsMenu()
+                        return self:buildColoursMenu()
                     end,
                     separator = true,
                 },
@@ -1992,9 +2018,9 @@ function Bookends:buildSingleBarMenu(bar_idx, bar_cfg)
         {
             text_func = function()
                 if bar_cfg.colors then
-                    return _("Custom colours and tick marks") .. " (\u{2713})"
+                    return _("Custom colors and tick marks") .. " (\u{2713})"
                 end
-                return _("Custom colours and tick marks")
+                return _("Custom colors and tick marks")
             end,
             enabled_func = isEnabled,
             sub_item_table_func = function()
@@ -2206,7 +2232,7 @@ function Bookends:hideMenu(touchmenu_instance)
     end
 end
 
-function Bookends:showNudgeDialog(title, value, min_val, max_val, default_val, unit, on_change, on_close, small_step, large_step, touchmenu_instance)
+function Bookends:showNudgeDialog(title, value, min_val, max_val, default_val, unit, on_change, on_close, small_step, large_step, touchmenu_instance, on_default, default_label)
     local ButtonDialog = require("ui/widget/buttondialog")
     local restoreMenu = self:hideMenu(touchmenu_instance)
     local orig_on_close = on_close
@@ -2261,7 +2287,15 @@ function Bookends:showNudgeDialog(title, value, min_val, max_val, default_val, u
                         if on_close then on_close() end
                     end,
                 },
-                { text = _("Default") .. " " .. default_val .. unit, callback = function() value = default_val; on_change(value); dialog:reinit() end },
+                { text = default_label or (_("Default") .. " " .. default_val .. unit), callback = function()
+                    if on_default then
+                        on_default()
+                        UIManager:close(dialog)
+                        if on_close then on_close() end
+                    else
+                        value = default_val; on_change(value); dialog:reinit()
+                    end
+                end },
                 {
                     text = _("Apply"),
                     is_enter_default = true,
@@ -2284,22 +2318,26 @@ function Bookends:_buildColorItems(bc, saveColors)
                 bc[field] = 0xFF - math.floor(val * 0xFF / 100 + 0.5)
                 saveColors()
             end,
-            nil, nil, nil, touchmenu_instance)
+            nil, nil, nil, touchmenu_instance,
+            function()
+                bc[field] = nil; saveColors()
+            end,
+            _("Default") .. " (" .. _("per style") .. ")")
     end
 
-    local function pctLabel(field, default_pct)
+    local function pctLabel(field)
         if bc[field] then
             local pct = math.floor((0xFF - bc[field]) * 100 / 0xFF + 0.5)
             if pct == 0 then return _("transparent") end
             return pct .. "%"
         end
-        return _("default") .. " (" .. default_pct .. "%)"
+        return _("default")
     end
 
     return {
         {
             text_func = function()
-                return _("Read color") .. ": " .. pctLabel("fill", 75)
+                return _("Read color") .. ": " .. pctLabel("fill")
             end,
             keep_menu_open = true,
             callback = function(touchmenu_instance)
@@ -2312,7 +2350,7 @@ function Bookends:_buildColorItems(bc, saveColors)
         },
         {
             text_func = function()
-                return _("Unread color") .. ": " .. pctLabel("bg", 25)
+                return _("Unread color") .. ": " .. pctLabel("bg")
             end,
             keep_menu_open = true,
             callback = function(touchmenu_instance)
@@ -2325,7 +2363,7 @@ function Bookends:_buildColorItems(bc, saveColors)
         },
         {
             text_func = function()
-                return _("Metro track color") .. ": " .. pctLabel("track", 75)
+                return _("Metro track color") .. ": " .. pctLabel("track")
             end,
             keep_menu_open = true,
             callback = function(touchmenu_instance)
@@ -2338,7 +2376,7 @@ function Bookends:_buildColorItems(bc, saveColors)
         },
         {
             text_func = function()
-                return _("Tick color") .. ": " .. pctLabel("tick", 100)
+                return _("Tick color") .. ": " .. pctLabel("tick")
             end,
             keep_menu_open = true,
             callback = function(touchmenu_instance)
@@ -2361,6 +2399,32 @@ function Bookends:_buildColorItems(bc, saveColors)
                 saveColors()
             end,
         },
+        {
+            text_func = function()
+                return _("Border color") .. ": " .. pctLabel("border")
+            end,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                colorNudge(_("Border color (% black)"), "border", 100, touchmenu_instance)
+            end,
+            hold_callback = function(touchmenu_instance)
+                bc.border = nil; saveColors()
+                if touchmenu_instance then touchmenu_instance:updateItems() end
+            end,
+        },
+        {
+            text_func = function()
+                return _("Tick inversion color") .. ": " .. pctLabel("invert")
+            end,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                colorNudge(_("Tick inversion color (% black)"), "invert", 0, touchmenu_instance)
+            end,
+            hold_callback = function(touchmenu_instance)
+                bc.invert = nil; saveColors()
+                if touchmenu_instance then touchmenu_instance:updateItems() end
+            end,
+        },
     }
 end
 
@@ -2368,7 +2432,7 @@ function Bookends:buildBarColorsMenu()
     local bc = self.settings:readSetting("bar_colors") or {}
 
     local function saveColors()
-        if not bc.fill and not bc.bg and not bc.track and not bc.tick and bc.invert_read_ticks == nil and not bc.tick_height_pct then
+        if not bc.fill and not bc.bg and not bc.track and not bc.tick and bc.invert_read_ticks == nil and not bc.tick_height_pct and not bc.border and not bc.invert then
             self.settings:delSetting("bar_colors")
         else
             self.settings:saveSetting("bar_colors", bc)
@@ -2444,6 +2508,100 @@ function Bookends:buildBarColorsMenu()
     })
 
     return items
+end
+
+function Bookends:buildColoursMenu()
+    local items = self:buildTextColourMenu()
+    items[#items].separator = true
+    table.insert(items, {
+        text = _("Progress bar colors and tick marks"),
+        sub_item_table_func = function()
+            return self:buildBarColorsMenu()
+        end,
+    })
+    return items
+end
+
+function Bookends:buildTextColourMenu()
+    local text_color = self.settings:readSetting("text_color")
+    local symbol_color = self.settings:readSetting("symbol_color")
+
+    local function textPctLabel()
+        if text_color then
+            local pct = math.floor((0xFF - text_color.grey) * 100 / 0xFF + 0.5)
+            if pct == 0 then return _("transparent") end
+            return pct .. "%"
+        end
+        return _("default") .. " (" .. _("book") .. ")"
+    end
+
+    local function symbolPctLabel()
+        if symbol_color then
+            local pct = math.floor((0xFF - symbol_color.grey) * 100 / 0xFF + 0.5)
+            if pct == 0 then return _("transparent") end
+            return pct .. "%"
+        end
+        return _("default") .. " (" .. _("text") .. ")"
+    end
+
+    return {
+        {
+            text_func = function()
+                return _("Text color") .. ": " .. textPctLabel()
+            end,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                local current = text_color and math.floor((0xFF - text_color.grey) * 100 / 0xFF + 0.5) or 100
+                self:showNudgeDialog(_("Text color (% black)"), current, 0, 100, 100, "%",
+                    function(val)
+                        text_color = { grey = 0xFF - math.floor(val * 0xFF / 100 + 0.5) }
+                        self.settings:saveSetting("text_color", text_color)
+                        self:markDirty()
+                    end,
+                    nil, nil, nil, touchmenu_instance,
+                    function()
+                        text_color = nil
+                        self.settings:delSetting("text_color")
+                        self:markDirty()
+                    end,
+                    _("Default") .. " (" .. _("book") .. ")")
+            end,
+            hold_callback = function(touchmenu_instance)
+                text_color = nil
+                self.settings:delSetting("text_color")
+                self:markDirty()
+                if touchmenu_instance then touchmenu_instance:updateItems() end
+            end,
+        },
+        {
+            text_func = function()
+                return _("Symbol color") .. ": " .. symbolPctLabel()
+            end,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                local current = symbol_color and math.floor((0xFF - symbol_color.grey) * 100 / 0xFF + 0.5) or 100
+                self:showNudgeDialog(_("Symbol color (% black)"), current, 0, 100, 100, "%",
+                    function(val)
+                        symbol_color = { grey = 0xFF - math.floor(val * 0xFF / 100 + 0.5) }
+                        self.settings:saveSetting("symbol_color", symbol_color)
+                        self:markDirty()
+                    end,
+                    nil, nil, nil, touchmenu_instance,
+                    function()
+                        symbol_color = nil
+                        self.settings:delSetting("symbol_color")
+                        self:markDirty()
+                    end,
+                    _("Default") .. " (" .. _("text") .. ")")
+            end,
+            hold_callback = function(touchmenu_instance)
+                symbol_color = nil
+                self.settings:delSetting("symbol_color")
+                self:markDirty()
+                if touchmenu_instance then touchmenu_instance:updateItems() end
+            end,
+        },
+    }
 end
 
 function Bookends:buildPositionMenu(pos)
