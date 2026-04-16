@@ -625,171 +625,181 @@ function Bookends:paintTo(bb, x, y)
     end
 end
 
-function Bookends:_paintToInner(bb, x, y)
+--- Convert a settings-stored color value (number grey, {grey=N}, or nil) to a
+--- Blitbuffer Color8 or false (fully transparent). Returns nil if not set.
+local function resolveBarColors(bc)
+    local Blitbuffer = require("ffi/blitbuffer")
+    local function colorOrTransparent(v)
+        if not v then return nil end
+        if type(v) == "table" then
+            if v.grey then
+                if v.grey >= 0xFF then return false end
+                return Blitbuffer.Color8(v.grey)
+            end
+            return nil
+        end
+        if v >= 0xFF then return false end
+        return Blitbuffer.Color8(v)
+    end
+    return {
+        fill = colorOrTransparent(bc.fill),
+        bg = colorOrTransparent(bc.bg),
+        track = colorOrTransparent(bc.track),
+        tick = colorOrTransparent(bc.tick),
+        border = colorOrTransparent(bc.border),
+        invert = colorOrTransparent(bc.invert),
+        invert_read_ticks = bc.invert_read_ticks,
+        tick_height_pct = bc.tick_height_pct,
+    }
+end
 
-    self._hold_rects = {}
+--- Compute the progress percentage and tick marks for a single bar.
+--- Returns (pct, ticks).
+function Bookends:_computeBarProgress(bar_cfg, pageno_local)
+    local doc = self.ui.document
+    local is_cre = self.ui.rolling ~= nil
+    local pct = 0
+    local ticks = {}
 
-    local screen_size = Screen:getSize()
-    local screen_w = screen_size.w
-    local screen_h = screen_size.h
+    if bar_cfg.type == "book" then
+        -- Use page-based progress to match KOReader's footer bar
+        local raw_total = doc:getPageCount()
+        if raw_total and raw_total > 0 then
+            if doc:hasHiddenFlows() then
+                local flow = doc:getPageFlow(pageno_local)
+                local flow_total = doc:getTotalPagesInFlow(flow)
+                local flow_page = doc:getPageNumberInFlow(pageno_local)
+                pct = flow_total > 0 and (flow_page / flow_total) or 0
+            else
+                pct = pageno_local / raw_total
+            end
+            pct = math.max(0, math.min(1, pct))
+        end
+        -- Chapter tick marks (cached — static for the document)
+        local tick_level = bar_cfg.chapter_ticks
+        if tick_level and tick_level ~= "off" then
+            if not self._tick_cache then
+                self._tick_cache = self:_computeTickCache()
+            end
+            if tick_level == "all" then
+                ticks = self._tick_cache or {}
+            else
+                local max_tick_depth = tick_level == "level2" and 2 or 1
+                for _, tick in ipairs(self._tick_cache or {}) do
+                    if type(tick) == "table" and tick[3] and tick[3] <= max_tick_depth then
+                        table.insert(ticks, tick)
+                    end
+                end
+            end
+        end
+        -- Per-bar tick width override: recompute widths if this bar has a custom multiplier
+        local per_bar_tw = bar_cfg.colors and bar_cfg.colors.tick_width_multiplier
+        if per_bar_tw and ticks and #ticks > 0 then
+            local max_depth = self.ui.toc and self.ui.toc:getMaxDepth() or 1
+            local remapped = {}
+            for _, tick in ipairs(ticks) do
+                local d = type(tick) == "table" and tick[3] or 1
+                local tw = math.max(1, (max_depth - d + 1) * per_bar_tw - 1)
+                table.insert(remapped, { tick[1], tw, d })
+            end
+            ticks = remapped
+        end
+    elseif bar_cfg.type == "chapter" then
+        if is_cre and doc.getCurrentPos and self.ui.toc then
+            local cur_pos = doc:getCurrentPos()
+            local chapter_start = self.ui.toc:getPreviousChapter(pageno_local)
+            if self.ui.toc:isChapterStart(pageno_local) then
+                chapter_start = pageno_local
+            end
+            local next_chapter = self.ui.toc:getNextChapter(pageno_local)
+            if chapter_start then
+                local start_xp = doc:getPageXPointer(chapter_start)
+                local start_pos = start_xp and doc:getPosFromXPointer(start_xp) or 0
+                local end_pos
+                if next_chapter then
+                    local next_xp = doc:getPageXPointer(next_chapter)
+                    end_pos = next_xp and doc:getPosFromXPointer(next_xp) or (doc.info and doc.info.doc_height or 0)
+                else
+                    end_pos = doc.info and doc.info.doc_height or 0
+                end
+                local range = end_pos - start_pos
+                if range > 0 then
+                    pct = math.max(0, math.min(1, (cur_pos - start_pos) / range))
+                end
+            end
+        elseif self.ui.toc then
+            local done = self.ui.toc:getChapterPagesDone(pageno_local)
+            local total = self.ui.toc:getChapterPageCount(pageno_local)
+            if done and total and total > 0 then
+                pct = math.max(0, math.min(1, (done + 1) / total))
+            end
+        end
+    end
 
-    -- Render full-width progress bars (behind text)
-    -- Cache tick fractions (static for the document, expensive to compute on CRE)
+    return pct, ticks
+end
+
+--- Compute the pixel rectangle (x,y,w,h) of a bar given its anchor/margins.
+local function computeBarRect(bar_cfg, x, y, screen_w, screen_h)
+    local anchor = bar_cfg.v_anchor or "bottom"
+    local vertical = anchor == "left" or anchor == "right"
+    local bar_thickness = bar_cfg.height or 20
+    if vertical then
+        -- margin_left/right reinterpreted as top/bottom insets
+        local bar_h = screen_h - (bar_cfg.margin_left or 0) - (bar_cfg.margin_right or 0)
+        local bar_y = y + (bar_cfg.margin_left or 0)
+        local bar_x
+        if anchor == "left" then
+            bar_x = x + (bar_cfg.margin_v or 0)
+        else
+            bar_x = x + screen_w - bar_thickness - (bar_cfg.margin_v or 0)
+        end
+        return bar_x, bar_y, bar_thickness, bar_h, vertical
+    else
+        local bar_w = screen_w - (bar_cfg.margin_left or 0) - (bar_cfg.margin_right or 0)
+        local bar_x = x + (bar_cfg.margin_left or 0)
+        local bar_y
+        if anchor == "top" then
+            bar_y = y + (bar_cfg.margin_v or 0)
+        else
+            bar_y = y + screen_h - bar_thickness - (bar_cfg.margin_v or 0)
+        end
+        return bar_x, bar_y, bar_w, bar_thickness, vertical
+    end
+end
+
+--- Render all enabled full-width progress bars (bars drawn behind text).
+--- Populates self._hold_rects so long-press gestures can find the bars.
+--- Returns (bar_colors, text_color, symbol_color) — colour values the
+--- text-rendering phase also needs.
+function Bookends:_renderProgressBars(bb, x, y, screen_w, screen_h)
     if self.dirty then
         self._tick_cache = nil
     end
-    local function resolveColors(bc)
-        local Blitbuffer = require("ffi/blitbuffer")
-        local function colorOrTransparent(v)
-            if not v then return nil end
-            if type(v) == "table" then
-                if v.grey then
-                    if v.grey >= 0xFF then return false end
-                    return Blitbuffer.Color8(v.grey)
-                end
-                return nil
-            end
-            if v >= 0xFF then return false end
-            return Blitbuffer.Color8(v)
-        end
-        return {
-            fill = colorOrTransparent(bc.fill),
-            bg = colorOrTransparent(bc.bg),
-            track = colorOrTransparent(bc.track),
-            tick = colorOrTransparent(bc.tick),
-            border = colorOrTransparent(bc.border),
-            invert = colorOrTransparent(bc.invert),
-            invert_read_ticks = bc.invert_read_ticks,
-            tick_height_pct = bc.tick_height_pct,
-        }
-    end
+
     -- Progress bar colors from settings
     local global_tick_height_pct = self.settings:readSetting("tick_height_pct")
-    local bar_colors
     local bc = self.settings:readSetting("bar_colors") or {}
     bc.tick_height_pct = global_tick_height_pct or bc.tick_height_pct
+    local bar_colors
     if bc.fill or bc.bg or bc.track or bc.tick or bc.invert_read_ticks ~= nil or bc.tick_height_pct or bc.border or bc.invert then
-        bar_colors = resolveColors(bc)
+        bar_colors = resolveBarColors(bc)
     end
-    -- Text/icon colours from settings
-    local text_color = self.settings:readSetting("text_color")  -- {grey=N} or nil
-    local symbol_color = self.settings:readSetting("symbol_color")  -- {grey=N} or nil
-    for bar_idx, bar_cfg in ipairs(self.progress_bars or {}) do
+
+    local text_color = self.settings:readSetting("text_color")
+    local symbol_color = self.settings:readSetting("symbol_color")
+
+    for _bar_idx, bar_cfg in ipairs(self.progress_bars or {}) do
         if bar_cfg.enabled then
-            local anchor = bar_cfg.v_anchor or "bottom"
-            local vertical = anchor == "left" or anchor == "right"
-            local bar_thickness = bar_cfg.height or 20
-            local bar_w, bar_h, bar_x, bar_y
-            if vertical then
-                -- Vertical: tall narrow bar on left/right edge
-                -- margin_left/right reinterpreted as top/bottom insets
-                bar_w = bar_thickness
-                bar_h = screen_h - (bar_cfg.margin_left or 0) - (bar_cfg.margin_right or 0)
-                bar_y = y + (bar_cfg.margin_left or 0)
-                if anchor == "left" then
-                    bar_x = x + (bar_cfg.margin_v or 0)
-                else
-                    bar_x = x + screen_w - bar_thickness - (bar_cfg.margin_v or 0)
-                end
-            else
-                -- Horizontal: wide bar along top/bottom edge
-                bar_w = screen_w - (bar_cfg.margin_left or 0) - (bar_cfg.margin_right or 0)
-                bar_h = bar_thickness
-                bar_x = x + (bar_cfg.margin_left or 0)
-                if anchor == "top" then
-                    bar_y = y + (bar_cfg.margin_v or 0)
-                else
-                    bar_y = y + screen_h - bar_thickness - (bar_cfg.margin_v or 0)
-                end
-            end
+            local bar_x, bar_y, bar_w, bar_h, vertical = computeBarRect(bar_cfg, x, y, screen_w, screen_h)
             if bar_w > 0 and bar_h > 0 then
-
-                local pct = 0
-                local ticks = {}
                 local pageno_local = self.ui.view.state.page or 0
-                local doc = self.ui.document
-                local is_cre = self.ui.rolling ~= nil
-
-                if bar_cfg.type == "book" then
-                    -- Use page-based progress to match KOReader's footer bar
-                    local raw_total = doc:getPageCount()
-                    if raw_total and raw_total > 0 then
-                        if doc:hasHiddenFlows() then
-                            local flow = doc:getPageFlow(pageno_local)
-                            local flow_total = doc:getTotalPagesInFlow(flow)
-                            local flow_page = doc:getPageNumberInFlow(pageno_local)
-                            pct = flow_total > 0 and (flow_page / flow_total) or 0
-                        else
-                            pct = pageno_local / raw_total
-                        end
-                        pct = math.max(0, math.min(1, pct))
-                    end
-                    -- Chapter tick marks (cached — static for the document)
-                    local tick_level = bar_cfg.chapter_ticks
-                    if tick_level and tick_level ~= "off" then
-                        if not self._tick_cache then
-                            self._tick_cache = self:_computeTickCache()
-                        end
-                        if tick_level == "all" then
-                            ticks = self._tick_cache or {}
-                        else
-                            local max_tick_depth = tick_level == "level2" and 2 or 1
-                            ticks = {}
-                            for _, tick in ipairs(self._tick_cache or {}) do
-                                if type(tick) == "table" and tick[3] and tick[3] <= max_tick_depth then
-                                    table.insert(ticks, tick)
-                                end
-                            end
-                        end
-                    end
-                    -- Per-bar tick width override: recompute widths if this bar has a custom multiplier
-                    local per_bar_tw = bar_cfg.colors and bar_cfg.colors.tick_width_multiplier
-                    if per_bar_tw and ticks and #ticks > 0 then
-                        local max_depth = self.ui.toc and self.ui.toc:getMaxDepth() or 1
-                        local remapped = {}
-                        for _, tick in ipairs(ticks) do
-                            local d = type(tick) == "table" and tick[3] or 1
-                            local tw = math.max(1, (max_depth - d + 1) * per_bar_tw - 1)
-                            table.insert(remapped, { tick[1], tw, d })
-                        end
-                        ticks = remapped
-                    end
-                elseif bar_cfg.type == "chapter" then
-                    if is_cre and doc.getCurrentPos and self.ui.toc then
-                        local cur_pos = doc:getCurrentPos()
-                        local chapter_start = self.ui.toc:getPreviousChapter(pageno_local)
-                        if self.ui.toc:isChapterStart(pageno_local) then
-                            chapter_start = pageno_local
-                        end
-                        local next_chapter = self.ui.toc:getNextChapter(pageno_local)
-                        if chapter_start then
-                            local start_xp = doc:getPageXPointer(chapter_start)
-                            local start_pos = start_xp and doc:getPosFromXPointer(start_xp) or 0
-                            local end_pos
-                            if next_chapter then
-                                local next_xp = doc:getPageXPointer(next_chapter)
-                                end_pos = next_xp and doc:getPosFromXPointer(next_xp) or (doc.info and doc.info.doc_height or 0)
-                            else
-                                end_pos = doc.info and doc.info.doc_height or 0
-                            end
-                            local range = end_pos - start_pos
-                            if range > 0 then
-                                pct = math.max(0, math.min(1, (cur_pos - start_pos) / range))
-                            end
-                        end
-                    elseif self.ui.toc then
-                        local done = self.ui.toc:getChapterPagesDone(pageno_local)
-                        local total = self.ui.toc:getChapterPageCount(pageno_local)
-                        if done and total and total > 0 then
-                            pct = math.max(0, math.min(1, (done + 1) / total))
-                        end
-                    end
-                end
+                local pct, ticks = self:_computeBarProgress(bar_cfg, pageno_local)
 
                 local direction = bar_cfg.direction or (vertical and "ttb" or "ltr")
                 local paint_vertical = direction == "ttb" or direction == "btt"
                 local paint_reverse = direction == "rtl" or direction == "btt"
-                local colors = bar_cfg.colors and resolveColors(bar_cfg.colors) or bar_colors
+                local colors = bar_cfg.colors and resolveBarColors(bar_cfg.colors) or bar_colors
                 -- Ensure global tick_height_pct is always available
                 if colors and not colors.tick_height_pct and global_tick_height_pct then
                     colors.tick_height_pct = global_tick_height_pct
@@ -802,6 +812,19 @@ function Bookends:_paintToInner(bb, x, y)
             end
         end
     end
+
+    return bar_colors, text_color, symbol_color
+end
+
+function Bookends:_paintToInner(bb, x, y)
+    self._hold_rects = {}
+
+    local screen_size = Screen:getSize()
+    local screen_w = screen_size.w
+    local screen_h = screen_size.h
+
+    -- Phase 0: Render full-width progress bars (drawn behind text)
+    local bar_colors, text_color, symbol_color = self:_renderProgressBars(bb, x, y, screen_w, screen_h)
 
     -- Phase 1: Expand tokens for all active positions
     -- Filter lines by page parity, join with \n, then expand tokens
