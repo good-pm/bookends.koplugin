@@ -80,7 +80,6 @@ require("preset_manager").attach(Bookends)
 require("menu.colours_menu")(Bookends)
 require("menu.main_menu")(Bookends)
 require("menu.position_menu")(Bookends)
-require("menu.presets_menu")(Bookends)
 require("menu.progress_bar_menu")(Bookends)
 require("menu.token_picker")(Bookends)
 

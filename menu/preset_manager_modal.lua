@@ -42,13 +42,20 @@ function PresetManagerModal.show(bookends)
     }
 
     self.original_settings = util.tableDeepCopy({
-        enabled   = bookends.enabled,
-        positions = bookends.positions,
-        defaults  = bookends.defaults,
+        enabled       = bookends.enabled,
+        positions     = bookends.positions,
+        defaults      = bookends.defaults,
+        progress_bars = bookends.progress_bars,
         active_filename = bookends:getActivePresetFilename(),
     })
 
-    self.rebuild = function() PresetManagerModal._rebuild(self) end
+    -- nextTick lets any pending dialog dismissal flush before we re-open the modal,
+    -- avoiding visual glitches where the dialog's close races the modal's rebuild.
+    self.rebuild = function()
+        UIManager:nextTick(function() PresetManagerModal._rebuild(self) end)
+    end
+    -- Initial synchronous build on show
+    self.rebuildSync = function() PresetManagerModal._rebuild(self) end
     self.close = function(restore) PresetManagerModal._close(self, restore) end
     self.setTab = function(tab)
         if self.tab ~= tab then self.tab = tab; self.rebuild() end
@@ -58,15 +65,16 @@ function PresetManagerModal.show(bookends)
     self.applyCurrent = function() PresetManagerModal._applyCurrent(self) end
     self.toggleStar = function(key) PresetManagerModal._toggleStar(self, key) end
 
-    self.rebuild()
+    self.rebuildSync()
 end
 
 function PresetManagerModal._close(self, restore)
     if restore and self.previewing then
         local snap = self.original_settings
-        self.bookends.enabled   = snap.enabled
-        self.bookends.positions = util.tableDeepCopy(snap.positions)
-        self.bookends.defaults  = util.tableDeepCopy(snap.defaults)
+        self.bookends.enabled       = snap.enabled
+        self.bookends.positions     = util.tableDeepCopy(snap.positions)
+        self.bookends.defaults      = util.tableDeepCopy(snap.defaults)
+        self.bookends.progress_bars = util.tableDeepCopy(snap.progress_bars)
         self.bookends:setActivePresetFilename(snap.active_filename)
     end
     self.bookends._previewing = false
@@ -94,6 +102,14 @@ end
 function PresetManagerModal._previewBlank(self)
     self.bookends._previewing = true
     for _, pos in pairs(self.bookends.positions) do pos.lines = {} end
+    -- Also disable any progress bars so the overlay really is blank.
+    if self.bookends.progress_bars then
+        for i = 1, #self.bookends.progress_bars do
+            if self.bookends.progress_bars[i] then
+                self.bookends.progress_bars[i].enabled = false
+            end
+        end
+    end
     self.previewing = { kind = "blank", name = _("(No overlay)") }
     self.bookends:markDirty()
     self.rebuild()
@@ -151,33 +167,44 @@ function PresetManagerModal._rebuild(self)
     -- Title + tab switcher
     local title_face = Font:getFace("infofont", 20)
     local title = TextWidget:new{
-        text = _("Preset Manager"),
+        text = _("Bookends preset manager"),
         face = title_face,
         bold = true,
         forced_height = row_height,
         forced_baseline = baseline,
         fgcolor = Blitbuffer.COLOR_BLACK,
     }
-    local tabs_text = "[" .. (self.tab == "local" and _("Local") or " " .. _("Local") .. " ") .. "] [" ..
-                      (self.tab == "gallery" and _("Gallery") or " " .. _("Gallery") .. " ") .. "]"
-    local tabs = TextWidget:new{
-        text = tabs_text,
-        face = Font:getFace("infofont", 16),
-        forced_height = row_height,
-        forced_baseline = baseline,
-        fgcolor = Blitbuffer.COLOR_BLACK,
-    }
-    local tabs_ic = InputContainer:new{
-        dimen = Geom:new{ w = tabs:getWidth(), h = row_height },
-        tabs,
-    }
-    tabs_ic.ges_events = {
-        TapSelect = { GestureRange:new{ ges = "tap", range = tabs_ic.dimen } },
-    }
-    tabs_ic.onTapSelect = function()
-        self.setTab(self.tab == "local" and "gallery" or "local")
-        return true
+    -- Build a tab button: framed, active tab gets bold text + radius accent
+    local function tabButton(label, is_active, on_tap)
+        local inner_pad = Screen:scaleBySize(12)
+        local tb = TextWidget:new{
+            text = label,
+            face = Font:getFace("infofont", 16),
+            forced_height = math.floor(row_height * 0.75),
+            forced_baseline = math.floor(row_height * 0.55),
+            bold = is_active,
+            fgcolor = Blitbuffer.COLOR_BLACK,
+        }
+        local frame = FrameContainer:new{
+            bordersize = is_active and Size.border.thick or Size.border.thin,
+            radius = Size.radius.default,
+            padding = 0,
+            padding_left = inner_pad,
+            padding_right = inner_pad,
+            margin = 0,
+            background = Blitbuffer.COLOR_WHITE,
+            tb,
+        }
+        local ic = InputContainer:new{
+            dimen = Geom:new{ w = frame:getSize().w, h = frame:getSize().h },
+            frame,
+        }
+        ic.ges_events = { TapSelect = { GestureRange:new{ ges = "tap", range = ic.dimen } } }
+        ic.onTapSelect = function() on_tap(); return true end
+        return ic
     end
+    local local_btn   = tabButton(_("Local"),   self.tab == "local",   function() self.setTab("local") end)
+    local gallery_btn = tabButton(_("Gallery"), self.tab == "gallery", function() self.setTab("gallery") end)
 
     table.insert(vg, LeftContainer:new{
         dimen = Geom:new{ w = width, h = row_height },
@@ -185,7 +212,9 @@ function PresetManagerModal._rebuild(self)
             HorizontalSpan:new{ width = left_pad },
             title,
             HorizontalSpan:new{ width = Screen:scaleBySize(20) },
-            tabs_ic,
+            local_btn,
+            HorizontalSpan:new{ width = Screen:scaleBySize(8) },
+            gallery_btn,
         },
     })
     table.insert(vg, LineWidget:new{
@@ -218,22 +247,33 @@ function PresetManagerModal._rebuild(self)
     }
     if self.previewing and self.previewing.kind == "local" then
         local overflow = TextWidget:new{
-            text = "  \xE2\x8B\xAF",
+            text = "\xE2\x8B\xAF",
             face = Font:getFace("infofont", 18),
-            forced_height = row_height,
-            forced_baseline = baseline,
+            forced_height = math.floor(row_height * 0.75),
+            forced_baseline = math.floor(row_height * 0.55),
             bold = true,
             fgcolor = Blitbuffer.COLOR_BLACK,
         }
-        local overflow_ic = InputContainer:new{
-            dimen = Geom:new{ w = Screen:scaleBySize(40), h = row_height },
+        local overflow_frame = FrameContainer:new{
+            bordersize = Size.border.thin,
+            radius = Size.radius.default,
+            padding = 0,
+            padding_left = Screen:scaleBySize(14),
+            padding_right = Screen:scaleBySize(14),
+            margin = 0,
+            background = Blitbuffer.COLOR_WHITE,
             overflow,
+        }
+        local overflow_ic = InputContainer:new{
+            dimen = Geom:new{ w = overflow_frame:getSize().w, h = overflow_frame:getSize().h },
+            overflow_frame,
         }
         overflow_ic.ges_events = { TapSelect = { GestureRange:new{ ges = "tap", range = overflow_ic.dimen } } }
         overflow_ic.onTapSelect = function()
             PresetManagerModal._openOverflow(self)
             return true
         end
+        table.insert(state_group, HorizontalSpan:new{ width = Screen:scaleBySize(12) })
         table.insert(state_group, overflow_ic)
     end
     table.insert(vg, LeftContainer:new{
@@ -268,9 +308,9 @@ function PresetManagerModal._rebuild(self)
         fgcolor = Blitbuffer.COLOR_BLACK,
     }
     local btn_close_ic = InputContainer:new{
-        dimen = Geom:new{ w = math.floor(width / 2), h = row_height },
+        dimen = Geom:new{ w = math.floor((width - Size.line.thick) / 2), h = row_height },
         CenterContainer:new{
-            dimen = Geom:new{ w = math.floor(width / 2), h = row_height },
+            dimen = Geom:new{ w = math.floor((width - Size.line.thick) / 2), h = row_height },
             btn_close,
         },
     }
@@ -292,9 +332,9 @@ function PresetManagerModal._rebuild(self)
         fgcolor = self.previewing and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_DARK_GRAY,
     }
     local btn_apply_ic = InputContainer:new{
-        dimen = Geom:new{ w = math.floor(width / 2), h = row_height },
+        dimen = Geom:new{ w = math.floor((width - Size.line.thick) / 2), h = row_height },
         CenterContainer:new{
-            dimen = Geom:new{ w = math.floor(width / 2), h = row_height },
+            dimen = Geom:new{ w = math.floor((width - Size.line.thick) / 2), h = row_height },
             btn_apply,
         },
     }
@@ -310,7 +350,11 @@ function PresetManagerModal._rebuild(self)
         background = Blitbuffer.COLOR_BLACK,
         dimen = Geom:new{ w = width, h = Size.line.thick },
     })
-    table.insert(vg, HorizontalGroup:new{ btn_close_ic, btn_apply_ic })
+    local btn_divider = LineWidget:new{
+        background = Blitbuffer.COLOR_BLACK,
+        dimen = Geom:new{ w = Size.line.thick, h = row_height },
+    }
+    table.insert(vg, HorizontalGroup:new{ btn_close_ic, btn_divider, btn_apply_ic })
 
     -- Outer frame + center
     local frame = FrameContainer:new{
@@ -330,9 +374,9 @@ function PresetManagerModal._rebuild(self)
 end
 
 function PresetManagerModal._renderLocalRows(self, vg, width, row_height, font_size, baseline, left_pad)
-    -- "+ Save current as preset"
+    -- "+ Save current as new preset"
     local plus = TextWidget:new{
-        text = "+ " .. _("Save current as preset"),
+        text = "+ " .. _("Save current as new preset"),
         face = Font:getFace("infofont", 16),
         forced_height = row_height,
         forced_baseline = baseline,
@@ -346,11 +390,25 @@ function PresetManagerModal._renderLocalRows(self, vg, width, row_height, font_s
     plus_ic.onTapSelect = function() PresetManagerModal._saveCurrentAsPreset(self); return true end
     table.insert(vg, plus_ic)
 
+    -- Work out which row should look "selected" — the one currently previewed,
+    -- or the currently-active preset when nothing is being previewed.
+    local active_fn = self.bookends:getActivePresetFilename()
+    local selected_key
+    if self.previewing then
+        if self.previewing.kind == "blank" then selected_key = "_empty"
+        elseif self.previewing.kind == "local" then selected_key = self.previewing.filename
+        end
+    else
+        selected_key = active_fn  -- nil means the virtual blank is active
+        if selected_key == nil then selected_key = "_empty" end
+    end
+
     -- Virtual "(No overlay)" row
     PresetManagerModal._addRow(self, vg, width, row_height, font_size, baseline, left_pad, {
         display = _("(No overlay)"),
         star_key = "_empty",
         on_preview = function() self.previewBlank() end,
+        is_selected = (selected_key == "_empty"),
     })
 
     -- Real presets
@@ -361,6 +419,7 @@ function PresetManagerModal._renderLocalRows(self, vg, width, row_height, font_s
             display = p.name .. by,
             star_key = p.filename,
             on_preview = function() self.previewLocal(p) end,
+            is_selected = (selected_key == p.filename),
         })
     end
 end
@@ -385,12 +444,13 @@ function PresetManagerModal._addRow(self, vg, width, row_height, font_size, base
     star_ic.onTapSelect = function() self.toggleStar(key); return true end
 
     local name_widget = TextWidget:new{
-        text = opts.display,
+        text = (opts.is_selected and "\xE2\x96\xB8 " or "   ") .. opts.display,
         face = Font:getFace("cfont", font_size),
         forced_height = row_height,
         forced_baseline = baseline,
         max_width = width - 2 * left_pad - star_width,
         fgcolor = Blitbuffer.COLOR_BLACK,
+        bold = opts.is_selected,
     }
     local name_ic = InputContainer:new{
         dimen = Geom:new{ w = width - 2 * left_pad - star_width, h = row_height },
@@ -413,7 +473,10 @@ function PresetManagerModal._saveCurrentAsPreset(self)
         input = "",
         input_hint = _("Preset name"),
         buttons = {{
-            { text = _("Cancel"), id = "close", callback = function() UIManager:close(dlg) end },
+            { text = _("Cancel"), id = "close", callback = function()
+                UIManager:close(dlg)
+                self.rebuild()
+            end },
             { text = _("Save"), is_enter_default = true, callback = function()
                 local name = dlg:getInputText()
                 if name and name ~= "" then

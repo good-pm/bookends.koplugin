@@ -260,12 +260,17 @@ function Bookends:buildMainMenu()
         end,
     })
 
-    -- Presets (at bottom)
+    -- Preset Manager (at bottom)
     table.insert(menu, {
-        text = _("Presets"),
+        text = _("Bookends preset manager…"),
         enabled_func = function() return self.enabled end,
-        sub_item_table_func = function()
-            return self:buildPresetsMenu()
+        keep_menu_open = false,
+        callback = function(touchmenu_instance)
+            if touchmenu_instance then
+                touchmenu_instance:onClose()
+            end
+            local PresetManagerModal = require("menu/preset_manager_modal")
+            PresetManagerModal.show(self)
         end,
     })
 
