@@ -1,5 +1,18 @@
---- Pure utility helpers shared across the plugin. No KOReader or UI imports.
+--- Utility helpers shared across the plugin. KOReader modules loaded lazily where needed.
+local _ = require("i18n").gettext
 local Utils = {}
+
+--- Supported font-family keys with human-readable labels.
+-- "ui" resolves to KOReader's UI font; others resolve via cre_font_family_fonts.
+Utils.FONT_FAMILIES = {
+    ui             = _("UI font"),
+    serif          = _("Serif"),
+    ["sans-serif"] = _("Sans-serif"),
+    monospace      = _("Monospace"),
+    cursive        = _("Cursive"),
+    fantasy        = _("Fantasy"),
+}
+Utils.FONT_FAMILY_ORDER = { "ui", "serif", "sans-serif", "monospace", "cursive", "fantasy" }
 
 --- Remove an index from a sparse table, shifting higher indices down.
 -- Unlike table.remove, this works correctly when the table has gaps.
@@ -39,6 +52,68 @@ function Utils.cycleNext(tbl, current)
         if v == current then return tbl[(i % #tbl) + 1] end
     end
     return tbl[1]
+end
+
+--- Resolve a font-face string to a concrete file path.
+-- Returns `face` unchanged if it isn't a family sentinel.
+-- Family sentinels resolve via KOReader's font-family map; unmapped slots fall
+-- back to the UI font (matching KOReader's own family fallback semantics).
+-- @param face string: a TTF path, or "@family:<key>"
+-- @param fallback any: returned only in pathological cases (no UI font registered)
+function Utils.resolveFontFace(face, fallback)
+    if type(face) ~= "string" then return fallback end
+    local family = face:match("^@family:(.+)$")
+    if not family then return face end
+    local Font = require("ui/font")
+    if family == "ui" then
+        return (Font.fontmap and Font.fontmap.cfont) or fallback
+    end
+    local map = G_reader_settings:readSetting("cre_font_family_fonts") or {}
+    local mapped = map[family]
+    if mapped and mapped ~= "" then return mapped end
+    -- Unmapped family → fall back to UI font
+    return (Font.fontmap and Font.fontmap.cfont) or fallback
+end
+
+--- Build a display label for a font-face value.
+-- Returns nil for non-family faces (caller uses its existing display logic).
+-- For family faces, returns a table with fields:
+--   label       string  e.g. "Serif (EB Garamond)" or "Cursive (UI font)"
+--   is_family   bool    always true
+--   is_mapped   bool    false when the family has no mapping in KOReader
+--   resolved    string  the resolved TTF path (may be UI font for unmapped)
+function Utils.getFontFamilyLabel(face)
+    if type(face) ~= "string" then return nil end
+    local family = face:match("^@family:(.+)$")
+    if not family then return nil end
+    local human = Utils.FONT_FAMILIES[family] or family
+    local resolved = Utils.resolveFontFace(face, nil)
+    local FontList = require("fontlist")
+    local display
+    if resolved then
+        display = FontList:getLocalizedFontName(resolved, 0)
+               or resolved:match("([^/]+)%.[tT][tT][fF]$")
+               or resolved
+    end
+    local is_mapped
+    if family == "ui" then
+        is_mapped = true
+    else
+        local map = G_reader_settings:readSetting("cre_font_family_fonts") or {}
+        is_mapped = (map[family] ~= nil and map[family] ~= "")
+    end
+    local inner
+    if is_mapped then
+        inner = display or "?"
+    else
+        inner = _("UI font")
+    end
+    return {
+        label     = human .. " (" .. inner .. ")",
+        is_family = true,
+        is_mapped = is_mapped,
+        resolved  = resolved,
+    }
 end
 
 return Utils
