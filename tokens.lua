@@ -758,6 +758,14 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         end
     end
 
+    -- Total annotations (bookmarks + highlights + notes, matching stock bookmark_count)
+    local total_annotations = ""
+    if needs("X") then
+        if ui.annotation and ui.annotation.getNumberOfAnnotations then
+            total_annotations = tostring(ui.annotation:getNumberOfAnnotations() or 0)
+        end
+    end
+
     -- Replace bar tokens with a placeholder so buildBarLine knows where to insert the bar.
     local result_str = format_str
     if has_bar then
@@ -797,6 +805,7 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         ["%q"] = highlights_count,
         ["%Q"] = notes_count,
         ["%x"] = bookmarks_count,
+        ["%X"] = total_annotations,
         -- Statistics
         ["%r"] = reading_speed,
         ["%E"] = total_book_time,
@@ -821,6 +830,7 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         ["%P"] = true, ["%g"] = true, ["%G"] = true, ["%l"] = true,
         ["%h"] = true, ["%H"] = true, ["%k"] = true, ["%K"] = true,
         ["%R"] = true, ["%s"] = true, ["%r"] = true,
+        ["%X"] = true, ["%x"] = true, ["%q"] = true, ["%Q"] = true,
     }
     -- Per-token occurrence counters for matching limits
     local token_occurrence = {}
