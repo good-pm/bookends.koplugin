@@ -54,10 +54,31 @@ function Utils.cycleNext(tbl, current)
     return tbl[1]
 end
 
+--- Resolve a font display name (e.g. "Oooh Baby") to its file path.
+-- KOReader's cre_font_family_fonts stores display names, but Font:getFace
+-- needs a file. Returns the input as-is if it already looks like a path.
+-- Returns nil if no matching font is installed.
+local function resolveFontNameToFile(name_or_file)
+    if type(name_or_file) ~= "string" or name_or_file == "" then return nil end
+    if name_or_file:find("/") or name_or_file:match("%.[tT][tT][fFcC]$")
+       or name_or_file:match("%.[oO][tT][fFcC]$") then
+        return name_or_file  -- already a file path
+    end
+    local FontList = require("fontlist")
+    for file, info in pairs(FontList.fontinfo or {}) do
+        if info and info[1] and info[1].name == name_or_file then
+            return file
+        end
+    end
+    return nil
+end
+
 --- Resolve a font-face string to a concrete file path.
 -- Returns `face` unchanged if it isn't a family sentinel.
 -- Family sentinels resolve via KOReader's font-family map; unmapped slots fall
 -- back to the UI font (matching KOReader's own family fallback semantics).
+-- The mapped value may be a display name (as stored by KOReader's font-family
+-- fonts menu) or a file path; both are handled.
 -- @param face string: a TTF path, or "@family:<key>"
 -- @param fallback any: returned only in pathological cases (no UI font registered)
 function Utils.resolveFontFace(face, fallback)
@@ -65,14 +86,19 @@ function Utils.resolveFontFace(face, fallback)
     local family = face:match("^@family:(.+)$")
     if not family then return face end
     local Font = require("ui/font")
+    local ui_face = resolveFontNameToFile(Font.fontmap and Font.fontmap.cfont)
+                 or (Font.fontmap and Font.fontmap.cfont)
     if family == "ui" then
-        return (Font.fontmap and Font.fontmap.cfont) or fallback
+        return ui_face or fallback
     end
     local map = G_reader_settings:readSetting("cre_font_family_fonts") or {}
     local mapped = map[family]
-    if mapped and mapped ~= "" then return mapped end
-    -- Unmapped family → fall back to UI font
-    return (Font.fontmap and Font.fontmap.cfont) or fallback
+    if mapped and mapped ~= "" then
+        local resolved = resolveFontNameToFile(mapped)
+        if resolved then return resolved end
+        -- mapping exists but font not installed → fall through to UI font
+    end
+    return ui_face or fallback
 end
 
 --- Build a display label for a font-face value.
@@ -100,7 +126,10 @@ function Utils.getFontFamilyLabel(face)
         is_mapped = true
     else
         local map = G_reader_settings:readSetting("cre_font_family_fonts") or {}
-        is_mapped = (map[family] ~= nil and map[family] ~= "")
+        local stored = map[family]
+        -- Only "mapped" if the stored name resolves to an installed font.
+        is_mapped = stored ~= nil and stored ~= ""
+                    and resolveFontNameToFile(stored) ~= nil
     end
     local inner
     if is_mapped then

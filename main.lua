@@ -502,8 +502,13 @@ function Bookends:resolveLineConfig(face_name, font_size, style)
     local scale = self.defaults.font_scale or 100
     local scaled_size = math.max(1, math.floor(font_size * scale / 100 + 0.5))
 
+    -- Font:getFace can return nil for unknown files. Fall back to cfont so a
+    -- stale setting (font removed, family map points at uninstalled font) can't
+    -- crash the overlay.
+    local face = Font:getFace(resolved_face, scaled_size) or Font:getFace("cfont", scaled_size)
+
     return {
-        face = Font:getFace(resolved_face, scaled_size),
+        face = face,
         bold = synthetic_bold,
         italic = (style == "italic" or style == "bolditalic"),
     }
