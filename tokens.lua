@@ -742,6 +742,22 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         end
     end
 
+    -- Page-turn direction indicator
+    -- Shows ⇄ when any page-turn direction is inverted; empty otherwise.
+    -- Matches stock readerfooter page_turning_inverted logic (OR of four flags).
+    local page_turn_symbol = ""
+    if needs("V") then
+        local G = G_reader_settings
+        local inverted =
+               G:isTrue("input_invert_page_turn_keys")
+            or G:isTrue("input_invert_left_page_turn_keys")
+            or G:isTrue("input_invert_right_page_turn_keys")
+            or (ui.view and ui.view.inverse_reading_order)
+        if inverted then
+            page_turn_symbol = "\xE2\x87\x84" -- U+21C4
+        end
+    end
+
     -- Replace bar tokens with a placeholder so buildBarLine knows where to insert the bar.
     local result_str = format_str
     if has_bar then
@@ -793,6 +809,7 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         ["%m"] = tostring(mem_usage),
         ["%M"] = ram_mb,
         ["%v"] = disk_avail,
+        ["%V"] = page_turn_symbol,
     }
     -- (symbol_color wrapping happens after token expansion — see below)
     -- Track whether all tokens in the string resolved to empty or "0"
