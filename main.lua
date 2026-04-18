@@ -170,6 +170,18 @@ function Bookends:onDispatcherRegisterActions()
         args = {true, false},
         toggle = {_("on"), _("off")},
     })
+    Dispatcher:registerAction("bookends_open_manager", {
+        category = "none",
+        event = "OpenPresetManager",
+        title = _("Open preset manager"),
+        reader = true,
+    })
+end
+
+function Bookends:onOpenPresetManager()
+    local PresetManagerModal = require("menu/preset_manager_modal")
+    PresetManagerModal.show(self)
+    return true
 end
 
 --- One-time migration + first-run provisioning for the Preset Manager.
