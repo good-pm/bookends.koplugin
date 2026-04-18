@@ -137,6 +137,15 @@ function Tokens.buildConditionState(ui, session_elapsed, session_pages_read, pai
         state.light = powerd:frontlightIntensity() > 0 and "on" or "off"
     end
 
+    -- Page-turn direction (any of: global key inversion flags, per-book reading order)
+    local G = G_reader_settings
+    local page_turn_inverted =
+           G:isTrue("input_invert_page_turn_keys")
+        or G:isTrue("input_invert_left_page_turn_keys")
+        or G:isTrue("input_invert_right_page_turn_keys")
+        or (ui.view and ui.view.inverse_reading_order)
+    state.invert = page_turn_inverted and "yes" or "no"
+
     -- Page-based state
     local pageno = ui.view and ui.view.state and ui.view.state.page
     local doc = ui.document
