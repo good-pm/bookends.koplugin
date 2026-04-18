@@ -177,25 +177,26 @@ function PresetManagerModal._rebuild(self)
         forced_baseline = baseline,
         fgcolor = Blitbuffer.COLOR_BLACK,
     }
-    -- Build a tab button: framed, active tab gets bold text + radius accent
-    local function tabButton(label, is_active, on_tap)
-        local inner_pad = Screen:scaleBySize(12)
+    -- Segmented toggle: single rounded rectangle with two halves. Active half has
+    -- inverted colors (black bg, white fg) so it reads clearly as the selection.
+    local function segmentHalf(label, is_active, on_tap)
+        local pad_h = Screen:scaleBySize(14)
+        local pad_v = Screen:scaleBySize(6)
+        local bg = is_active and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_WHITE
+        local fg = is_active and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
         local tb = TextWidget:new{
             text = label,
             face = Font:getFace("infofont", 16),
-            forced_height = math.floor(row_height * 0.75),
-            forced_baseline = math.floor(row_height * 0.55),
             bold = is_active,
-            fgcolor = Blitbuffer.COLOR_BLACK,
+            fgcolor = fg,
         }
         local frame = FrameContainer:new{
-            bordersize = is_active and Size.border.thick or Size.border.thin,
-            radius = Size.radius.default,
+            bordersize = 0,
             padding = 0,
-            padding_left = inner_pad,
-            padding_right = inner_pad,
+            padding_left = pad_h, padding_right = pad_h,
+            padding_top = pad_v, padding_bottom = pad_v,
             margin = 0,
-            background = Blitbuffer.COLOR_WHITE,
+            background = bg,
             tb,
         }
         local ic = InputContainer:new{
@@ -206,23 +207,33 @@ function PresetManagerModal._rebuild(self)
         ic.onTapSelect = function() on_tap(); return true end
         return ic
     end
-    local local_btn   = tabButton(_("Local"),   self.tab == "local",   function() self.setTab("local") end)
-    local gallery_btn = tabButton(_("Gallery"), self.tab == "gallery", function() self.setTab("gallery") end)
+    local local_seg   = segmentHalf(_("Local"),   self.tab == "local",   function() self.setTab("local") end)
+    local gallery_seg = segmentHalf(_("Gallery"), self.tab == "gallery", function() self.setTab("gallery") end)
+    local seg_divider = LineWidget:new{
+        background = Blitbuffer.COLOR_BLACK,
+        dimen = Geom:new{ w = Size.line.thin, h = math.max(local_seg:getSize().h, gallery_seg:getSize().h) },
+    }
+    local segmented = FrameContainer:new{
+        bordersize = Size.border.thin,
+        radius = Size.radius.default,
+        padding = 0,
+        margin = 0,
+        background = Blitbuffer.COLOR_WHITE,
+        HorizontalGroup:new{ local_seg, seg_divider, gallery_seg },
+    }
 
-    -- Compute spacer width so the tab buttons sit flush with the right edge.
-    local tabs_block_w = local_btn:getSize().w + Screen:scaleBySize(8) + gallery_btn:getSize().w
+    -- Right-align the segmented toggle on the title row.
     local title_w = title:getWidth()
+    local seg_w = segmented:getSize().w
     local title_row_spacer_w = math.max(Screen:scaleBySize(20),
-                                        width - left_pad - title_w - tabs_block_w - left_pad)
+                                        width - left_pad - title_w - seg_w - left_pad)
     table.insert(vg, LeftContainer:new{
         dimen = Geom:new{ w = width, h = row_height },
         HorizontalGroup:new{
             HorizontalSpan:new{ width = left_pad },
             title,
             HorizontalSpan:new{ width = title_row_spacer_w },
-            local_btn,
-            HorizontalSpan:new{ width = Screen:scaleBySize(8) },
-            gallery_btn,
+            segmented,
         },
     })
     table.insert(vg, LineWidget:new{
@@ -230,69 +241,8 @@ function PresetManagerModal._rebuild(self)
         dimen = Geom:new{ w = width, h = Size.line.thick },
     })
 
-    -- State header
-    local active_fn = self.bookends:getActivePresetFilename()
-    local active_name = _("(No overlay)")
-    if active_fn then
-        local presets = self.bookends:readPresetFiles()
-        for _, p in ipairs(presets) do
-            if p.filename == active_fn then active_name = p.name; break end
-        end
-    end
-    local state_line = T(_("Currently editing: %1"), active_name)
-    if self.previewing then
-        state_line = state_line .. "  //  " .. T(_("Previewing: %1"), self.previewing.name)
-    end
-    local state_group = HorizontalGroup:new{
-        HorizontalSpan:new{ width = left_pad },
-        TextWidget:new{
-            text = state_line,
-            face = Font:getFace("cfont", 14),
-            forced_height = row_height,
-            forced_baseline = baseline,
-            fgcolor = Blitbuffer.COLOR_BLACK,
-        },
-    }
-    if self.previewing and self.previewing.kind == "local" then
-        local overflow = TextWidget:new{
-            text = "\xE2\x8B\xAF",
-            face = Font:getFace("infofont", 18),
-            forced_height = math.floor(row_height * 0.75),
-            forced_baseline = math.floor(row_height * 0.55),
-            bold = true,
-            fgcolor = Blitbuffer.COLOR_BLACK,
-        }
-        local overflow_frame = FrameContainer:new{
-            bordersize = Size.border.thin,
-            radius = Size.radius.default,
-            padding = 0,
-            padding_left = Screen:scaleBySize(14),
-            padding_right = Screen:scaleBySize(14),
-            margin = 0,
-            background = Blitbuffer.COLOR_WHITE,
-            overflow,
-        }
-        local overflow_ic = InputContainer:new{
-            dimen = Geom:new{ w = overflow_frame:getSize().w, h = overflow_frame:getSize().h },
-            overflow_frame,
-        }
-        overflow_ic.ges_events = { TapSelect = { GestureRange:new{ ges = "tap", range = overflow_ic.dimen } } }
-        overflow_ic.onTapSelect = function()
-            PresetManagerModal._openOverflow(self)
-            return true
-        end
-        -- Right-align overflow: push with a spacer filling remaining width.
-        local state_text_widget = state_group[2]
-        local text_w = state_text_widget:getWidth()
-        local spacer_w = math.max(Screen:scaleBySize(12),
-                                   width - left_pad - text_w - overflow_ic:getSize().w - left_pad)
-        table.insert(state_group, HorizontalSpan:new{ width = spacer_w })
-        table.insert(state_group, overflow_ic)
-    end
-    table.insert(vg, LeftContainer:new{
-        dimen = Geom:new{ w = width, h = row_height },
-        state_group,
-    })
+    -- (No dedicated state header row — the ▸ indicator on the selected row + the
+    --  inline ⋯ on Personal preset rows carry that information more compactly.)
 
     -- Body
     if self.tab == "local" then
@@ -441,6 +391,7 @@ function PresetManagerModal._renderLocalRows(self, vg, width, row_height, font_s
             display = p.name .. by,
             star_key = p.filename,
             on_preview = function() self.previewLocal(p) end,
+            on_hold = function() PresetManagerModal._openOverflow(self, p) end,
             is_selected = (selected_key == p.filename),
         })
     end
@@ -525,6 +476,10 @@ function PresetManagerModal._addRow(self, vg, width, row_height, font_size, base
     }
     name_ic.ges_events = { TapSelect = { GestureRange:new{ ges = "tap", range = name_ic.dimen } } }
     name_ic.onTapSelect = function() opts.on_preview(); return true end
+    if opts.on_hold then
+        name_ic.ges_events.HoldSelect = { GestureRange:new{ ges = "hold", range = name_ic.dimen } }
+        name_ic.onHoldSelect = function() opts.on_hold(); return true end
+    end
 
     table.insert(vg, HorizontalGroup:new{
         HorizontalSpan:new{ width = left_pad },
@@ -564,13 +519,12 @@ function PresetManagerModal._saveCurrentAsPreset(self)
     dlg:onShowKeyboard()
 end
 
-function PresetManagerModal._openOverflow(self)
-    if not self.previewing or self.previewing.kind ~= "local" then return end
+function PresetManagerModal._openOverflow(self, preset_entry)
+    -- preset_entry is a row from readPresetFiles: { name, filename, preset }.
+    -- Invoked by long-press on a Personal preset row.
+    if not preset_entry then return end
     local ButtonDialogTitle = require("ui/widget/buttondialogtitle")
-    local entry_name = self.previewing.name
-    local entry_filename = self.previewing.filename
-    -- Snapshot the entry for the closures to use — self.previewing may change.
-    local entry = { name = entry_name, filename = entry_filename, preset = self.previewing.data }
+    local entry = { name = preset_entry.name, filename = preset_entry.filename, preset = preset_entry.preset }
     local dlg
     dlg = ButtonDialogTitle:new{
         title = entry.name,
