@@ -1419,11 +1419,31 @@ function Bookends:showFontPicker(current_face, on_select, default_face)
         return ffiUtil.strcoll(a.name, b.name)
     end)
 
+    -- Prepend family entries (page 1 only, before the specific-font list)
+    local family_entries = {}
+    for _, fkey in ipairs(Utils.FONT_FAMILY_ORDER) do
+        local sentinel = "@family:" .. fkey
+        local fam_label = Utils.getFontFamilyLabel(sentinel)
+        if fam_label then
+            table.insert(family_entries, {
+                file = sentinel,
+                name = Utils.FONT_FAMILIES[fkey],
+                display = fam_label.label,
+                resolved_file = fam_label.resolved,
+                is_family = true,
+            })
+            font_display_names[sentinel] = fam_label.label
+        end
+    end
+
     -- If current/default face is a variant not in the list, resolve to the family representative
     local shown_files = {}
     for _, f in ipairs(fonts) do shown_files[f.file] = true end
+    for _, f in ipairs(family_entries) do shown_files[f.file] = true end
     local function resolveToVisible(face)
         if not face or shown_files[face] then return face end
+        -- Family sentinels pass through as themselves (they're always "visible" on page 1)
+        if type(face) == "string" and face:match("^@family:") then return face end
         local info = FontList.fontinfo[face]
         if info and info[1] then
             local name = FontList:getLocalizedFontName(face, 0) or info[1].name
@@ -1439,14 +1459,25 @@ function Bookends:showFontPicker(current_face, on_select, default_face)
     local per_page = 10
     local page = 1
 
-    -- Find initial page for current font
-    for i, f in ipairs(fonts) do
-        if f.file == selected then
-            page = math.ceil(i / per_page)
-            break
+    -- Page 1 shows fewer specific fonts (family rows + headers take space)
+    local page1_fonts = (#family_entries > 0) and math.max(2, per_page - #family_entries - 2) or per_page
+    -- Find initial page for current font (family sentinels always live on page 1)
+    if type(selected) == "string" and selected:match("^@family:") then
+        page = 1
+    else
+        for i, f in ipairs(fonts) do
+            if f.file == selected then
+                if i <= page1_fonts then
+                    page = 1
+                else
+                    page = 1 + math.ceil((i - page1_fonts) / per_page)
+                end
+                break
+            end
         end
     end
-    local total_pages = math.max(1, math.ceil(#fonts / per_page))
+    local remaining_fonts = math.max(0, #fonts - page1_fonts)
+    local total_pages = 1 + math.ceil(remaining_fonts / per_page)
 
     local screen_w, screen_h = Screen:getWidth(), Screen:getHeight()
     local width = math.floor(math.min(screen_w, screen_h) * 0.9)
@@ -1460,8 +1491,17 @@ function Bookends:showFontPicker(current_face, on_select, default_face)
     local function buildPage()
         -- Custom title row: "Select font — FontName" with font name in its typeface
         local selected_name = selected and font_display_names[selected] or _("Default")
-        local selected_face = selected and Font:getFace(selected, title_font_size)
-                              or Font:getFace("cfont", title_font_size)
+        local selected_face
+        if selected then
+            local sel_resolved = Utils.resolveFontFace(selected, nil)
+            if sel_resolved then
+                selected_face = Font:getFace(sel_resolved, title_font_size)
+            else
+                selected_face = Font:getFace("cfont", title_font_size)
+            end
+        else
+            selected_face = Font:getFace("cfont", title_font_size)
+        end
         local title_face = Font:getFace("infofont", title_font_size)
         local title_prefix = _("Select font") .. ": "
         local title_text = TextWidget:new{
@@ -1497,8 +1537,102 @@ function Bookends:showFontPicker(current_face, on_select, default_face)
         }
 
         local list_group = VerticalGroup:new{ align = "left" }
-        local start_idx = (page - 1) * per_page + 1
-        local end_idx = math.min(start_idx + per_page - 1, #fonts)
+
+        -- Page 1: prepend "Font-family fonts" header + family rows + "Fonts" header
+        if page == 1 and #family_entries > 0 then
+            local baseline = math.floor(row_height * 0.65)
+            -- Family section header
+            local family_header = TextWidget:new{
+                text = "\xE2\x94\x80\xE2\x94\x80 " .. _("Font-family fonts") .. " \xE2\x94\x80\xE2\x94\x80",
+                face = Font:getFace("cfont", font_size),
+                forced_height = row_height,
+                forced_baseline = baseline,
+                fgcolor = Blitbuffer.COLOR_BLACK,
+            }
+            table.insert(list_group, LeftContainer:new{
+                dimen = Geom:new{ w = width, h = row_height },
+                HorizontalGroup:new{
+                    HorizontalSpan:new{ width = left_pad },
+                    family_header,
+                },
+            })
+
+            -- Family rows
+            for _, f in ipairs(family_entries) do
+                local is_selected = (f.file == selected)
+                local row_face = f.resolved_file and Font:getFace(f.resolved_file, font_size)
+                                 or Font:getFace("cfont", font_size)
+                local check_w = TextWidget:new{
+                    text = is_selected and "\xE2\x9C\x93 " or "",
+                    face = Font:getFace("cfont", font_size),
+                    forced_height = row_height,
+                    forced_baseline = baseline,
+                    fgcolor = Blitbuffer.COLOR_BLACK,
+                    bold = true,
+                }
+                local check_width = Screen:scaleBySize(30)
+                local text_w = TextWidget:new{
+                    text = f.display,
+                    face = row_face,
+                    forced_height = row_height,
+                    forced_baseline = baseline,
+                    max_width = width - 2 * left_pad - check_width,
+                    fgcolor = Blitbuffer.COLOR_BLACK,
+                    bold = is_selected,
+                }
+                local row_group = HorizontalGroup:new{
+                    HorizontalSpan:new{ width = left_pad },
+                    CenterContainer:new{
+                        dimen = Geom:new{ w = check_width, h = row_height },
+                        check_w,
+                    },
+                    text_w,
+                }
+                local item_container = InputContainer:new{
+                    dimen = Geom:new{ w = width, h = row_height },
+                    row_group,
+                }
+                item_container.ges_events = {
+                    TapSelect = { GestureRange:new{ ges = "tap", range = item_container.dimen } },
+                }
+                local sentinel = f.file
+                item_container.onTapSelect = safe("fontPicker:selectFamily", function()
+                    selected = sentinel
+                    on_select(sentinel)
+                    picker:rebuild()
+                    return true
+                end)
+                table.insert(list_group, item_container)
+            end
+
+            -- "Fonts" section header (separates family block from specific fonts)
+            local fonts_header = TextWidget:new{
+                text = "\xE2\x94\x80\xE2\x94\x80 " .. _("Fonts") .. " \xE2\x94\x80\xE2\x94\x80",
+                face = Font:getFace("cfont", font_size),
+                forced_height = row_height,
+                forced_baseline = baseline,
+                fgcolor = Blitbuffer.COLOR_BLACK,
+            }
+            table.insert(list_group, LeftContainer:new{
+                dimen = Geom:new{ w = width, h = row_height },
+                HorizontalGroup:new{
+                    HorizontalSpan:new{ width = left_pad },
+                    fonts_header,
+                },
+            })
+        end
+
+        local start_idx
+        local rows_on_page = per_page
+        if page == 1 then
+            start_idx = 1
+            if #family_entries > 0 then
+                rows_on_page = math.max(2, per_page - #family_entries - 2)
+            end
+        else
+            start_idx = page1_fonts + (page - 2) * per_page + 1
+        end
+        local end_idx = math.min(start_idx + rows_on_page - 1, #fonts)
 
         for i = start_idx, end_idx do
             local f = fonts[i]
