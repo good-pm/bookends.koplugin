@@ -41,6 +41,9 @@ function PresetManagerModal.show(bookends)
         previewing = nil,
         original_settings = nil,
         modal_widget = nil,
+        gallery_index = nil,
+        gallery_loading = false,
+        gallery_error = nil,
     }
 
     self.original_settings = util.tableDeepCopy({
@@ -59,8 +62,33 @@ function PresetManagerModal.show(bookends)
     -- Initial synchronous build on show
     self.rebuildSync = function() PresetManagerModal._rebuild(self) end
     self.close = function(restore) PresetManagerModal._close(self, restore) end
+    self.fetchGallery = function(force)
+        if self.gallery_loading then return end
+        if self.gallery_index and not force then return end
+        local Gallery = require("preset_gallery")
+        if not self.gallery_index then
+            local cached = Gallery.getCachedIndex()
+            if cached then self.gallery_index = cached end
+        end
+        self.gallery_loading = true
+        Gallery.fetchIndex("KOReader-Bookends", function(idx, err)
+            self.gallery_loading = false
+            if idx then
+                self.gallery_index = idx
+                self.gallery_error = nil
+            else
+                self.gallery_error = err
+            end
+            self.rebuild()
+        end)
+    end
     self.setTab = function(tab)
-        if self.tab ~= tab then self.tab = tab; self.page = 1; self.rebuild() end
+        if self.tab ~= tab then
+            self.tab = tab
+            self.page = 1
+            if tab == "gallery" then self.fetchGallery(false) end
+            self.rebuild()
+        end
     end
     self.setPage = function(p) self.page = p; self.rebuild() end
     self.previewLocal = function(p) PresetManagerModal._previewLocal(self, p) end
@@ -124,6 +152,20 @@ function PresetManagerModal._applyCurrent(self)
         self.bookends:setActivePresetFilename(self.previewing.filename)
     elseif self.previewing.kind == "blank" then
         self.bookends:setActivePresetFilename(nil)
+    elseif self.previewing.kind == "gallery" then
+        -- Install: save to bookends_presets/ and make active.
+        local entry = self.previewing.entry
+        local data = self.previewing.data
+        local existing
+        for _, p in ipairs(self.bookends:readPresetFiles()) do
+            if p.name == entry.name then existing = p; break end
+        end
+        if existing then
+            PresetManagerModal._promptInstallCollision(self, existing, data, entry)
+            return  -- flow continues after user choice
+        end
+        local filename = self.bookends:writePresetFile(entry.name, data)
+        self.bookends:setActivePresetFilename(filename)
     end
     self.bookends._previewing = false
     self.previewing = nil
@@ -248,17 +290,7 @@ function PresetManagerModal._rebuild(self)
     if self.tab == "local" then
         PresetManagerModal._renderLocalRows(self, vg, width, row_height, font_size, baseline, left_pad)
     else
-        table.insert(vg, LeftContainer:new{
-            dimen = Geom:new{ w = width, h = row_height * 3 },
-            HorizontalGroup:new{
-                HorizontalSpan:new{ width = left_pad },
-                TextWidget:new{
-                    text = _("Gallery — coming soon"),
-                    face = Font:getFace("infofont", 16),
-                    fgcolor = Blitbuffer.COLOR_BLACK,
-                },
-            },
-        })
+        PresetManagerModal._renderGalleryRows(self, vg, width, row_height, font_size, baseline, left_pad)
     end
 
     -- Footer buttons
@@ -662,6 +694,213 @@ function PresetManagerModal._delete(self, entry)
             self.rebuild()
         end,
     })
+end
+
+function PresetManagerModal._renderGalleryRows(self, vg, width, row_height, font_size, baseline, left_pad)
+    if self.gallery_loading and not self.gallery_index then
+        table.insert(vg, LeftContainer:new{
+            dimen = Geom:new{ w = width, h = row_height },
+            HorizontalGroup:new{
+                HorizontalSpan:new{ width = left_pad },
+                TextWidget:new{
+                    text = _("Loading gallery…"),
+                    face = Font:getFace("cfont", 16),
+                    fgcolor = Blitbuffer.COLOR_BLACK,
+                },
+            },
+        })
+        return
+    end
+    if self.gallery_error and not self.gallery_index then
+        local msg = self.gallery_error == "offline"
+            and _("Gallery requires an internet connection")
+            or _("Gallery data is temporarily unavailable")
+        table.insert(vg, LeftContainer:new{
+            dimen = Geom:new{ w = width, h = row_height * 2 },
+            HorizontalGroup:new{
+                HorizontalSpan:new{ width = left_pad },
+                TextWidget:new{
+                    text = msg,
+                    face = Font:getFace("cfont", 16),
+                    fgcolor = Blitbuffer.COLOR_BLACK,
+                },
+            },
+        })
+        return
+    end
+    if not self.gallery_index or not self.gallery_index.presets then return end
+
+    -- Build local-preset-name set for ✓ indicator
+    local local_names = {}
+    for _, p in ipairs(self.bookends:readPresetFiles()) do local_names[p.name] = true end
+
+    -- Paginate gallery entries the same way Local does
+    local ROWS_PER_PAGE = 8
+    local entries = self.gallery_index.presets
+    local total_pages = math.max(1, math.ceil(#entries / ROWS_PER_PAGE))
+    if self.page > total_pages then self.page = total_pages end
+    local start_idx = (self.page - 1) * ROWS_PER_PAGE + 1
+    local end_idx = math.min(start_idx + ROWS_PER_PAGE - 1, #entries)
+
+    for i = start_idx, end_idx do
+        local entry = entries[i]
+        local check = local_names[entry.name] and "\xE2\x9C\x93 " or ""
+        local by = entry.author and (" — " .. entry.author) or ""
+        local display = check .. entry.name .. by
+        -- Gallery rows: no star (cycle only holds Local), tap = preview
+        local name_widget = TextWidget:new{
+            text = (self.previewing and self.previewing.kind == "gallery"
+                    and self.previewing.entry and self.previewing.entry.slug == entry.slug
+                    and "\xE2\x96\xB8 " or "   ") .. display,
+            face = Font:getFace("cfont", font_size),
+            forced_height = row_height,
+            forced_baseline = baseline,
+            max_width = width - 2 * left_pad,
+            fgcolor = Blitbuffer.COLOR_BLACK,
+            bold = (self.previewing and self.previewing.kind == "gallery"
+                    and self.previewing.entry and self.previewing.entry.slug == entry.slug) or false,
+        }
+        local name_ic = InputContainer:new{
+            dimen = Geom:new{ w = width - 2 * left_pad, h = row_height },
+            name_widget,
+        }
+        name_ic.ges_events = { TapSelect = { GestureRange:new{ ges = "tap", range = name_ic.dimen } } }
+        local captured = entry
+        name_ic.onTapSelect = function() PresetManagerModal._previewGallery(self, captured); return true end
+        table.insert(vg, HorizontalGroup:new{ HorizontalSpan:new{ width = left_pad }, name_ic })
+    end
+
+    -- Pad to keep modal height stable
+    local rendered = end_idx - start_idx + 1
+    for _ = rendered + 1, ROWS_PER_PAGE do
+        table.insert(vg, HorizontalGroup:new{
+            HorizontalSpan:new{ width = left_pad },
+            TextWidget:new{
+                text = "",
+                face = Font:getFace("cfont", font_size),
+                forced_height = row_height,
+                forced_baseline = baseline,
+            },
+        })
+    end
+
+    -- Pagination nav (matches Local tab's visual)
+    if total_pages > 1 then
+        local page_cur = self.page
+        local page_nav = HorizontalGroup:new{
+            align = "center",
+            Button:new{ icon = "chevron.first",
+                callback = function() self.setPage(1) end,
+                bordersize = 0, enabled = page_cur > 1, show_parent = self.modal_widget },
+            HorizontalSpan:new{ width = Screen:scaleBySize(8) },
+            Button:new{ icon = "chevron.left",
+                callback = function() self.setPage(page_cur - 1) end,
+                bordersize = 0, enabled = page_cur > 1, show_parent = self.modal_widget },
+            HorizontalSpan:new{ width = Screen:scaleBySize(16) },
+            Button:new{ text = T(_("Page %1 of %2"), page_cur, total_pages),
+                text_font_size = 16, callback = function() end,
+                bordersize = 0, show_parent = self.modal_widget },
+            HorizontalSpan:new{ width = Screen:scaleBySize(16) },
+            Button:new{ icon = "chevron.right",
+                callback = function() self.setPage(page_cur + 1) end,
+                bordersize = 0, enabled = page_cur < total_pages, show_parent = self.modal_widget },
+            HorizontalSpan:new{ width = Screen:scaleBySize(8) },
+            Button:new{ icon = "chevron.last",
+                callback = function() self.setPage(total_pages) end,
+                bordersize = 0, enabled = page_cur < total_pages, show_parent = self.modal_widget },
+        }
+        table.insert(vg, CenterContainer:new{
+            dimen = Geom:new{ w = width, h = row_height },
+            page_nav,
+        })
+    end
+end
+
+function PresetManagerModal._previewGallery(self, entry)
+    local Gallery = require("preset_gallery")
+    Gallery.downloadPreset(entry.slug, entry.preset_url,
+        "KOReader-Bookends",
+        function(data, err)
+            if not data then
+                Notification:notify(T(_("Couldn't download '%1'."), entry.name))
+                return
+            end
+            local clean = self.bookends.validatePreset(data)
+            if not clean then
+                Notification:notify(_("This preset appears invalid; skipping."))
+                require("logger").warn("bookends gallery: invalid preset", entry.slug)
+                return
+            end
+            self.bookends._previewing = true
+            local ok = pcall(self.bookends.loadPreset, self.bookends, clean)
+            if not ok then
+                self.bookends._previewing = false
+                Notification:notify(_("Could not preview preset"))
+                return
+            end
+            self.previewing = { kind = "gallery", name = entry.name, entry = entry, data = clean }
+            self.bookends:markDirty()
+            self.rebuild()
+        end)
+end
+
+function PresetManagerModal._promptInstallCollision(self, existing, data, entry)
+    local ButtonDialogTitle = require("ui/widget/buttondialogtitle")
+    local dlg
+    dlg = ButtonDialogTitle:new{
+        title = T(_("A preset called '%1' already exists."), entry.name),
+        title_align = "center",
+        buttons = {
+            {{ text = _("Overwrite"), callback = function()
+                UIManager:close(dlg)
+                self.bookends:deletePresetFile(existing.filename)
+                local filename = self.bookends:writePresetFile(entry.name, data)
+                self.bookends:setActivePresetFilename(filename)
+                self.bookends._previewing = false
+                self.previewing = nil
+                if self.modal_widget then
+                    UIManager:close(self.modal_widget)
+                    self.modal_widget = nil
+                end
+                self.bookends:markDirty()
+            end }},
+            {{ text = _("Rename…"), callback = function()
+                UIManager:close(dlg)
+                local input
+                input = InputDialog:new{
+                    title = _("Install as"),
+                    input = entry.name .. " (2)",
+                    buttons = {{
+                        { text = _("Cancel"), id = "close",
+                          callback = function() UIManager:close(input); self.rebuild() end },
+                        { text = _("Install"), is_enter_default = true, callback = function()
+                            local new_name = input:getInputText()
+                            if new_name and new_name ~= "" then
+                                data.name = new_name
+                                local filename = self.bookends:writePresetFile(new_name, data)
+                                self.bookends:setActivePresetFilename(filename)
+                            end
+                            self.bookends._previewing = false
+                            self.previewing = nil
+                            UIManager:close(input)
+                            if self.modal_widget then
+                                UIManager:close(self.modal_widget)
+                                self.modal_widget = nil
+                            end
+                            self.bookends:markDirty()
+                        end },
+                    }},
+                }
+                UIManager:show(input)
+                input:onShowKeyboard()
+            end }},
+            {{ text = _("Cancel"), callback = function()
+                UIManager:close(dlg)
+                self.rebuild()
+            end }},
+        },
+    }
+    UIManager:show(dlg)
 end
 
 return PresetManagerModal
