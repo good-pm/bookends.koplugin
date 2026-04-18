@@ -54,7 +54,7 @@ function Utils.cycleNext(tbl, current)
     return tbl[1]
 end
 
---- Resolve a font display name (e.g. "Raleway") to its file path.
+--- Resolve a font display name (e.g. "Noto Sans") to its file path.
 -- KOReader's cre_font_family_fonts stores display names, but Font:getFace
 -- needs a file. Returns the input as-is if it already looks like a path.
 -- Uses CRE's own face-to-file logic when available (picks the regular
@@ -136,7 +136,7 @@ end
 --- Build a display label for a font-face value.
 -- Returns nil for non-family faces (caller uses its existing display logic).
 -- For family faces, returns a table with fields:
---   label       string  e.g. "Serif (EB Garamond)" or "Cursive (UI font)"
+--   label       string  e.g. "Serif (Noto Serif)" or "Cursive (UI font)"
 --   is_family   bool    always true
 --   is_mapped   bool    false when the family has no mapping in KOReader
 --   resolved    string  the resolved TTF path (may be UI font for unmapped)
@@ -149,8 +149,8 @@ function Utils.getFontFamilyLabel(face)
     local FontList = require("fontlist")
     local display
     if resolved then
-        -- Prefer the family name (e.g. "Raleway") over the localized full name
-        -- (e.g. "Raleway SemiBold"), which would include the weight.
+        -- Prefer the family name (e.g. "Noto Sans") over the localized full name
+        -- (e.g. "Noto Sans Medium"), which would include the weight.
         local info = FontList.fontinfo and FontList.fontinfo[resolved]
         display = (info and info[1] and info[1].name)
                or FontList:getLocalizedFontName(resolved, 0)
