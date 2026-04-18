@@ -473,6 +473,8 @@ Bookends.STYLE_LABELS = {
 
 function Bookends:resolveLineConfig(face_name, font_size, style)
     style = style or "regular"
+    -- Resolve @family:<key> sentinels before any variant lookup.
+    face_name = Utils.resolveFontFace(face_name, self.defaults.font_face)
     local resolved_face = face_name
     local synthetic_bold = false
 
