@@ -319,6 +319,40 @@ Assign **Toggle bookends** to any gesture via **Settings > Gesture manager > Rea
 
 </details>
 
+<details>
+<summary><strong>Coverage of KOReader's stock status bar</strong> — every stock item mapped to a bookends token</summary>
+
+Bookends covers the same information as KOReader's built-in status bar, often with finer granularity. This table maps each stock footer item to the bookends token(s) that produce the same information.
+
+| Stock footer item | Bookends token(s) |
+|-------------------|-------------------|
+| Page number (current / total) | `%c` / `%t` |
+| Pages left in book | `%L` |
+| Pages left in chapter | `%l` |
+| Chapter progress (page in chapter) | `%g` / `%G` |
+| Book percentage | `%p` |
+| Chapter percentage | `%P` |
+| Time to finish book | `%H` |
+| Time to finish chapter | `%h` |
+| Clock (12h / 24h) | `%k` / `%K` |
+| Battery level | `%b` (%) / `%B` (dynamic icon) |
+| Charging indicator | `[if:charging=yes]⚡[/if]` |
+| Wi-Fi status | `%W` (dynamic) |
+| Frontlight brightness | `%f` |
+| Frontlight warmth | `%F` |
+| Memory usage | `%m` (%) / `%M` (MiB) |
+| Book title / author | `%T` / `%A` |
+| Current chapter title | `%C` (also `%C1`…`%C9` by depth) |
+| Bookmark count | `%x` |
+| Highlight count | `%q` |
+| Note count | `%Q` |
+| **Total annotations** | `%X` |
+| **Page-turning inverted** | `%V` (also `[if:invert=yes]`) |
+
+Bookends' six-zone positioning model replaces stock's `dynamic_filler` layout and `additional_content` plugin hook — those aren't separate tokens because the overlay itself fills that role.
+
+</details>
+
 ---
 
 ## Installation
