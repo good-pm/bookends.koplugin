@@ -832,3 +832,582 @@ msgstr "Color no leído"
 
 msgid "Unread color (% black)"
 msgstr "Color no leído (% negro)"
+msgid "%1, line %2"
+msgstr "%1, línea %2"
+
+msgid "1 preset in the approval queue"
+msgstr "1 preset en la cola de aprobación"
+
+msgid "%1 presets in the approval queue"
+msgstr "%1 presets en la cola de aprobación"
+
+msgid "After 10pm"
+msgstr "Después de las 22:00"
+
+msgid "Apply"
+msgstr "Aplicar"
+
+msgid "A preset called '%1' already exists."
+msgstr "Ya existe un preset llamado '%1'."
+
+msgid "Arrow down then left"
+msgstr "Flecha abajo y luego a la izquierda"
+
+msgid "Arrow down then right"
+msgstr "Flecha abajo y luego a la derecha"
+
+msgid "Arrowhead right"
+msgstr "Punta de flecha a la derecha"
+
+msgid "Arrow left hooked"
+msgstr "Flecha a la izquierda con gancho"
+
+msgid "Arrow right hooked"
+msgstr "Flecha a la derecha con gancho"
+
+msgid "Arrow right then down"
+msgstr "Flecha a la derecha y luego abajo"
+
+msgid "Arrow right then up"
+msgstr "Flecha a la derecha y luego arriba"
+
+msgid "Arrows when page-turn direction is flipped"
+msgstr "Flechas cuando la dirección de paso de página está invertida"
+
+msgid "Arrow up then left"
+msgstr "Flecha arriba y luego a la izquierda"
+
+msgid "Arrow up then right"
+msgstr "Flecha arriba y luego a la derecha"
+
+msgid "Bar %1"
+msgstr "Barra %1"
+
+msgid "Bar thickness"
+msgstr "Grosor de la barra"
+
+msgid "batt — 0 to 100"
+msgstr "batt — 0 a 100"
+
+msgid "Bolt icon when charging"
+msgstr "Icono de rayo al cargar"
+
+msgid "Bookends: cycle preset"
+msgstr "Bookends: cambiar preset"
+
+msgid "Bookends: open preset library"
+msgstr "Bookends: abrir biblioteca de presets"
+
+msgid "Bookends settings"
+msgstr "Ajustes de Bookends"
+
+msgid "Bookends: set visibility"
+msgstr "Bookends: establecer visibilidad"
+
+msgid "Bookends: toggle visibility"
+msgstr "Bookends: alternar visibilidad"
+
+msgid "Bookends update available: v"
+msgstr "Actualización de Bookends disponible: v"
+
+msgid "Border color"
+msgstr "Color del borde"
+
+msgid "Border color (% black)"
+msgstr "Color del borde (% negro)"
+
+msgid "Border thickness"
+msgstr "Grosor del borde"
+
+msgid "Bottom center tap gesture"
+msgstr "Gesto de toque en el centro inferior"
+
+msgid "Browse presets others have shared, preview them on your own status bar, and install the ones you like. Once installed, you can edit each preset freely on the My presets tab."
+msgstr "Explora los presets que otros han compartido, previsualízalos en tu propia barra de estado e instala los que te gusten. Una vez instalados, puedes editar cada preset libremente en la pestaña Mis presets."
+
+msgid "by"
+msgstr "por"
+
+msgid "chapter — 0 to 100 (chapter)"
+msgstr "chapter — 0 a 100 (capítulo)"
+
+msgid "Chapter title at depth 1"
+msgstr "Título de capítulo de nivel 1"
+
+msgid "Chapter title at depth 2"
+msgstr "Título de capítulo de nivel 2"
+
+msgid "Chapter title at depth 3"
+msgstr "Título de capítulo de nivel 3"
+
+msgid "Chapter title (deepest)"
+msgstr "Título de capítulo (más profundo)"
+
+msgid "charging — yes / no"
+msgstr "charging — sí / no"
+
+msgid "Circle arrow left"
+msgstr "Flecha circular a la izquierda"
+
+msgid "Circle arrow right"
+msgstr "Flecha circular a la derecha"
+
+msgid "Configure what happens when you tap the centre of the status bar area, and whether long-pressing a progress bar opens the skim dialog."
+msgstr "Configura lo que ocurre al tocar el centro de la barra de estado y si al mantener pulsada una barra de progreso se abre el diálogo de vista rápida."
+
+msgid "connected — yes / no"
+msgstr "connected — sí / no"
+
+msgid "copy"
+msgstr "copia"
+
+msgid "Could not preview preset"
+msgstr "No se pudo previsualizar el preset"
+
+msgid "Couldn't download '%1'."
+msgstr "No se pudo descargar '%1'."
+
+msgid "Cursive"
+msgstr "Cursiva"
+
+msgid "Curved back arrow"
+msgstr "Flecha curva de retorno"
+
+msgid "Custom colors and tick marks"
+msgstr "Colores y marcas personalizadas"
+
+msgid "Custom fonts in this preset:"
+msgstr "Fuentes personalizadas en este preset:"
+
+msgid "cycle presets"
+msgstr "cambiar presets"
+
+msgid "Cycle starred presets"
+msgstr "Cambiar entre presets destacados"
+
+msgid "day — Mon Tue Wed Thu Fri Sat Sun"
+msgstr "day — Lun Mar Mié Jue Vie Sáb Dom"
+
+msgid "Default"
+msgstr "Predeterminado"
+
+msgid "Delete preset '%1'?"
+msgstr "¿Eliminar el preset '%1'?"
+
+msgid "Different content on odd/even pages"
+msgstr "Contenido distinto en páginas pares/impares"
+
+msgid "Different text on Saturdays"
+msgstr "Texto distinto los sábados"
+
+msgid "Disable stock status bar"
+msgstr "Desactivar la barra de estado original"
+
+msgid "Discover more presets"
+msgstr "Descubrir más presets"
+
+msgid "Dismiss"
+msgstr "Descartar"
+
+msgid "Double arrow down"
+msgstr "Flecha doble hacia abajo"
+
+msgid "Double arrow left"
+msgstr "Flecha doble a la izquierda"
+
+msgid "Double arrow right"
+msgstr "Flecha doble a la derecha"
+
+msgid "Double arrow up"
+msgstr "Flecha doble hacia arriba"
+
+msgid "Duplicate"
+msgstr "Duplicar"
+
+msgid "Duplicate preset"
+msgstr "Duplicar preset"
+
+msgid "Edit author"
+msgstr "Editar autor"
+
+msgid "Edit author…"
+msgstr "Editar autor…"
+
+msgid "Edit description"
+msgstr "Editar descripción"
+
+msgid "Edit description…"
+msgstr "Editar descripción…"
+
+msgid "Examples"
+msgstr "Ejemplos"
+
+msgid "Fantasy"
+msgstr "Fantasía"
+
+msgid "Fixed-width progress bar (100px)"
+msgstr "Barra de progreso de ancho fijo (100px)"
+
+msgid "Font-family fonts"
+msgstr "Fuentes por familia"
+
+msgid "Fonts"
+msgstr "Fuentes"
+
+msgid "Font size"
+msgstr "Tamaño de fuente"
+
+msgid "format — EPUB / PDF / CBZ etc."
+msgstr "format — EPUB / PDF / CBZ etc."
+
+msgid "Frontlight status"
+msgstr "Estado de la luz frontal"
+
+msgid "Gallery"
+msgstr "Galería"
+
+msgid "Heavy arrow right"
+msgstr "Flecha gruesa a la derecha"
+
+msgid "Heavy round arrow right"
+msgstr "Flecha redondeada gruesa a la derecha"
+
+msgid "Heavy triangle right"
+msgstr "Triángulo grueso a la derecha"
+
+msgid "Hides KOReader's built-in status bar. This simplifies the render pipeline and can reduce e-ink flicker on some devices. All status bar features are available as Bookends tokens."
+msgstr "Oculta la barra de estado integrada de KOReader. Esto simplifica el proceso de renderizado y puede reducir el parpadeo de la tinta electrónica en algunos dispositivos. Todas las funciones de la barra de estado están disponibles como tokens de Bookends."
+
+msgid "If/Else conditional tokens"
+msgstr "Tokens condicionales If/Else"
+
+msgid "[if:key=value]if true[else]if false[/if]"
+msgstr "[if:key=value]si verdadero[else]si falso[/if]"
+
+msgid "[if:key=value]show when true[/if]"
+msgstr "[if:key=value]mostrar si verdadero[/if]"
+
+msgid "Insert conditional"
+msgstr "Insertar condicional"
+
+msgid "Install"
+msgstr "Instalar"
+
+msgid "Install as"
+msgstr "Instalar como"
+
+msgid "Installed version"
+msgstr "Versión instalada"
+
+msgid "invert — yes / no (page-turn direction)"
+msgstr "invert — sí / no (dirección de paso de página)"
+
+msgid "Left harpoon with right arrow"
+msgstr "Arpón izquierdo con flecha derecha"
+
+msgid "Lightbulb emoji"
+msgstr "Emoji de bombilla"
+
+msgid "light — on / off"
+msgstr "light — on / off"
+
+msgid "line"
+msgstr "línea"
+
+msgid "Long arrow left"
+msgstr "Flecha larga a la izquierda"
+
+msgid "Long arrow right"
+msgstr "Flecha larga a la derecha"
+
+msgid "Long-press progress bars to skim document"
+msgstr "Mantén pulsada la barra de progreso para hojear el documento"
+
+msgid "Long press to change render order"
+msgstr "Mantén pulsado para cambiar el orden de renderizado"
+
+msgid "Made something worth sharing? Submit it with the Manage button while viewing one of your own presets."
+msgstr "¿Has creado algo que merece compartirse? Envíalo con el botón Gestionar mientras visualizas uno de tus propios presets."
+
+msgid "Manage…"
+msgstr "Gestionar…"
+
+msgid "Message near end of book"
+msgstr "Mensaje cerca del final del libro"
+
+msgid "Monospace"
+msgstr "Monoespaciada"
+
+msgid "My presets"
+msgstr "Mis presets"
+
+msgid "Notify on wake when update available"
+msgstr "Notificar al despertar si hay actualización"
+
+msgid "Offline — connect to preview this preset."
+msgstr "Sin conexión — conéctate para previsualizar este preset."
+
+msgid "Offline — connect to refresh"
+msgstr "Sin conexión — conéctate para actualizar"
+
+msgid "One-line description of this preset"
+msgstr "Descripción de una línea de este preset"
+
+msgid "Only show for PDF documents"
+msgstr "Mostrar solo en documentos PDF"
+
+msgid "Open"
+msgstr "Abrir"
+
+msgid "Open preset library"
+msgstr "Abrir biblioteca de presets"
+
+msgid "Opens the skim dialog when you long-press on a full-width progress bar. Replaces the stock status bar's long-press to skim feature."
+msgstr "Abre el diálogo de vista rápida al mantener pulsada una barra de progreso de ancho completo. Reemplaza la función de hojear con pulsación larga de la barra de estado original."
+
+msgid "Open the releases page in a browser?"
+msgstr "¿Abrir la página de versiones en un navegador?"
+
+msgid "Operators:  =  <  >"
+msgstr "Operadores:  =  <  >"
+
+msgid "Overwrite"
+msgstr "Sobrescribir"
+
+msgid "Page %1 of %2"
+msgstr "Página %1 de %2"
+
+msgid "page — odd / even"
+msgstr "page — impar / par"
+
+msgid "pages — session pages read"
+msgstr "pages — páginas leídas en la sesión"
+
+msgid "Page-turn direction \xE2\x87\x84 (shows when inverted)"
+msgstr "Dirección de paso de página \xE2\x87\x84 (se muestra cuando está invertida)"
+
+msgid "percent — 0 to 100 (book)"
+msgstr "percent — 0 a 100 (libro)"
+
+msgid "per style"
+msgstr "por estilo"
+
+msgid "plugin update available"
+msgstr "actualización del plugin disponible"
+
+msgid "Pointing down"
+msgstr "Apuntando hacia abajo"
+
+msgid "Pointing left"
+msgstr "Apuntando a la izquierda"
+
+msgid "Pointing right"
+msgstr "Apuntando a la derecha"
+
+msgid "Pointing right (black)"
+msgstr "Apuntando a la derecha (negro)"
+
+msgid "Pointing up"
+msgstr "Apuntando hacia arriba"
+
+msgid "Preset"
+msgstr "Preset"
+
+msgid "Preset: %1"
+msgstr "Preset: %1"
+
+msgid "Preset error: %1"
+msgstr "Error de preset: %1"
+
+msgid "preset library"
+msgstr "biblioteca de presets"
+
+msgid "Preset library"
+msgstr "Biblioteca de presets"
+
+msgid "Preset library…"
+msgstr "Biblioteca de presets…"
+
+msgid "Preset name"
+msgstr "Nombre del preset"
+
+msgid "Progress bar, 10px tall"
+msgstr "Barra de progreso, 10px de alto"
+
+msgid "Progress bar, 200px wide and 4px tall"
+msgstr "Barra de progreso, 200px de ancho y 4px de alto"
+
+msgid "Progress bar colors and tick marks"
+msgstr "Colores y marcas de la barra de progreso"
+
+msgid "RAM used (MiB)"
+msgstr "RAM usada (MiB)"
+
+msgid "recommended"
+msgstr "recomendado"
+
+msgid "Reference"
+msgstr "Referencia"
+
+msgid "Refresh"
+msgstr "Actualizar"
+
+msgid "Refresh failed — tap Refresh to retry"
+msgstr "Actualización fallida — toca Actualizar para reintentar"
+
+msgid "Refreshing…"
+msgstr "Actualizando…"
+
+msgid "Rename"
+msgstr "Renombrar"
+
+msgid "Rename…"
+msgstr "Renombrar…"
+
+msgid "Rename preset"
+msgstr "Renombrar preset"
+
+msgid "Reset custom to defaults"
+msgstr "Restablecer personalizados a valores predeterminados"
+
+msgid "Sans-serif"
+msgstr "Sans-serif"
+
+msgid "Save as new preset…"
+msgstr "Guardar como nuevo preset…"
+
+msgid "Saved preset:"
+msgstr "Preset guardado:"
+
+msgid "Save preset"
+msgstr "Guardar preset"
+
+msgid "Serif"
+msgstr "Serif"
+
+msgid "session — minutes reading"
+msgstr "session — minutos de lectura"
+
+msgid "Session time, hidden at start"
+msgstr "Tiempo de sesión, oculto al inicio"
+
+msgid "Set font"
+msgstr "Establecer fuente"
+
+msgid "Show wifi icon when connected"
+msgstr "Mostrar icono de wifi cuando esté conectado"
+
+msgid "Snippets"
+msgstr "Fragmentos"
+
+msgid "Speed, hidden until calculated"
+msgstr "Velocidad, oculta hasta ser calculada"
+
+msgid "speed — pages per hour"
+msgstr "speed — páginas por hora"
+
+msgid "Star = include in preset cycle gesture"
+msgstr "Estrella = incluir en el gesto de cambio de presets"
+
+msgid "Submission failed: %1"
+msgstr "Envío fallido: %1"
+
+msgid "Submission failed — details in the KOReader log."
+msgstr "Envío fallido — detalles en el registro de KOReader."
+
+msgid "Submit"
+msgstr "Enviar"
+
+msgid "Submit '%1' by %2 to the gallery? A pull request will be opened for review."
+msgstr "¿Enviar '%1' por %2 a la galería? Se abrirá un pull request para revisión."
+
+msgid "Submit anyway"
+msgstr "Enviar de todos modos"
+
+msgid "Submitting to gallery…"
+msgstr "Enviando a la galería…"
+
+msgid "Submit to gallery…"
+msgstr "Enviar a la galería…"
+
+msgid "Symbol color"
+msgstr "Color del símbolo"
+
+msgid "Symbol color (% black)"
+msgstr "Color del símbolo (% negro)"
+
+msgid "Tap Refresh above to load the gallery."
+msgstr "Toca Actualizar arriba para cargar la galería."
+
+msgid "text"
+msgstr "texto"
+
+msgid "Text color"
+msgstr "Color del texto"
+
+msgid "Text color (% black)"
+msgstr "Color del texto (% negro)"
+
+msgid "Thanks! Your submission is PR #%1.\n\nThe maintainer will review it before it appears in the Gallery."
+msgstr "¡Gracias! Tu envío es el PR #%1.\n\nEl mantenedor lo revisará antes de que aparezca en la Galería."
+
+msgid "This preset appears invalid; skipping."
+msgstr "Este preset parece no ser válido; se omite."
+
+msgid "This preset uses specific fonts that won't exist on other devices. These overrides will be stripped from your submission so other users see their own default font."
+msgstr "Este preset usa fuentes específicas que no existirán en otros dispositivos. Estas sustituciones se eliminarán de tu envío para que otros usuarios vean su propia fuente predeterminada."
+
+msgid "Tick height"
+msgstr "Altura de la marca"
+
+msgid "Tick inversion color"
+msgstr "Color de inversión de la marca"
+
+msgid "Tick inversion color (% black)"
+msgstr "Color de inversión de la marca (% negro)"
+
+msgid "Tick width"
+msgstr "Ancho de la marca"
+
+msgid "time — use HH:MM (24h)"
+msgstr "time — usa HH:MM (24h)"
+
+msgid "Tip: for portable presets, pick a Font-family font (Serif, Sans-serif, etc.) instead of a specific one — those adapt to each user's font settings."
+msgstr "Consejo: para presets portables, elige una fuente por familia (Serif, Sans-serif, etc.) en lugar de una específica — estas se adaptan a la configuración de fuente de cada usuario."
+
+msgid "toggle bookends"
+msgstr "alternar bookends"
+
+msgid "Total annotations (bookmarks + highlights + notes)"
+msgstr "Anotaciones totales (marcadores + resaltados + notas)"
+
+msgid "transparent"
+msgstr "transparente"
+
+msgid "Triangle-head right"
+msgstr "Punta triangular a la derecha"
+
+msgid "Truncation gap"
+msgstr "Espacio de truncado"
+
+msgid "UI font"
+msgstr "Fuente de la interfaz"
+
+msgid "Update available"
+msgstr "Actualización disponible"
+
+msgid "Use custom colors"
+msgstr "Usar colores personalizados"
+
+msgid "Warning when battery below 20%"
+msgstr "Aviso cuando la batería sea inferior al 20%"
+
+msgid "Wave"
+msgstr "Onda"
+
+msgid "Who should we credit as the author?"
+msgstr "¿A quién debemos acreditar como autor?"
+
+msgid "wifi — on / off"
+msgstr "wifi — on / off"
+
