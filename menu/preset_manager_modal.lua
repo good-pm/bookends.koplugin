@@ -1045,10 +1045,10 @@ function PresetManagerModal._renderGalleryRows(self, vg, width, row_height, font
         status_text = _("Offline — connect to refresh")
     elseif self.gallery_error then
         status_text = _("Refresh failed — tap Refresh to retry")
-    elseif self.gallery_index and self.gallery_index.presets then
-        status_text = ""
     else
-        status_text = _("Tap Refresh to load the gallery")
+        -- When loaded, and when idle-empty (the help panel already explains
+        -- what to do), leave the status field blank.
+        status_text = ""
     end
 
     -- Card-style Refresh pill. Matches the preset cards (thin border, default
@@ -1117,42 +1117,44 @@ function PresetManagerModal._renderGalleryRows(self, vg, width, row_height, font
         local card_slot_h = Screen:scaleBySize(64) + Screen:scaleBySize(8)
         local pagination_area_h = 2 * Size.span.vertical_default + Size.line.thin + row_height
         local help_h = card_slot_h * 5
-        local text_width = width - 4 * left_pad
-        local body_fg = Blitbuffer.COLOR_DARK_GRAY
+        -- Wider side margins than the card layout so the help panel reads as
+        -- content, not a list. Body text stays pure black on e-ink — dark-grey
+        -- is reserved for labels/chrome, not for reading content.
+        local text_width = width - 8 * left_pad
         local title_widget = TextWidget:new{
             text = _("Discover more presets"),
-            face = Font:getFace("cfont", 18),
+            face = Font:getFace("cfont", 20),
             bold = true,
             fgcolor = Blitbuffer.COLOR_BLACK,
         }
         local intro = TextBoxWidget:new{
             text = _("Browse presets others have shared, preview them on your own status bar, and install the ones you like. Once installed, you can edit each preset freely on the Local tab."),
-            face = Font:getFace("cfont", 14),
+            face = Font:getFace("cfont", 16),
             width = text_width,
             alignment = "center",
-            fgcolor = body_fg,
+            fgcolor = Blitbuffer.COLOR_BLACK,
         }
         local share = TextBoxWidget:new{
             text = _("Made something worth sharing? Submit it with the Manage button while viewing one of your own presets."),
-            face = Font:getFace("cfont", 14),
+            face = Font:getFace("cfont", 16),
             width = text_width,
             alignment = "center",
-            fgcolor = body_fg,
+            fgcolor = Blitbuffer.COLOR_BLACK,
         }
         local cta = TextWidget:new{
             text = _("Tap Refresh above to load the gallery."),
-            face = Font:getFace("cfont", 14),
+            face = Font:getFace("cfont", 16),
             bold = true,
             fgcolor = Blitbuffer.COLOR_BLACK,
         }
         local help_group = VerticalGroup:new{
             align = "center",
             title_widget,
-            VerticalSpan:new{ width = Screen:scaleBySize(14) },
+            VerticalSpan:new{ width = Screen:scaleBySize(16) },
             intro,
-            VerticalSpan:new{ width = Screen:scaleBySize(12) },
+            VerticalSpan:new{ width = Screen:scaleBySize(14) },
             share,
-            VerticalSpan:new{ width = Screen:scaleBySize(18) },
+            VerticalSpan:new{ width = Screen:scaleBySize(22) },
             cta,
         }
         table.insert(vg, CenterContainer:new{
