@@ -83,6 +83,17 @@ function b64(s: string): string {
     return btoa(bin);
 }
 
+function b64decodeUtf8(b64_content: string): string {
+    // atob returns a binary string (one char per byte). For multi-byte UTF-8
+    // content (em-dashes, accented chars, etc.) we must reassemble as bytes
+    // and decode as UTF-8 — otherwise each byte becomes a Latin-1 char and
+    // re-encoding corrupts the original content.
+    const bin = atob(b64_content.replace(/\n/g, ""));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder("utf-8").decode(bytes);
+}
+
 async function handleSubmit(request: Request, env: Env): Promise<Response> {
     if (request.method === "OPTIONS") return json(204, {});
     if (request.method !== "POST") return json(405, { ok: false, error: "use POST" });
@@ -135,8 +146,7 @@ async function handleSubmit(request: Request, env: Env): Promise<Response> {
         const indexFile = await gh<{ sha: string; content: string; encoding: string }>(
             env, `/repos/${owner}/${repo}/contents/index.json?ref=main`);
         indexSha = indexFile.sha;
-        const decoded = atob(indexFile.content.replace(/\n/g, ""));
-        indexObj = JSON.parse(decoded);
+        indexObj = JSON.parse(b64decodeUtf8(indexFile.content));
     } catch (e) {
         return json(502, { ok: false, error: `github fetch failed: ${(e as Error).message}` });
     }
