@@ -625,8 +625,14 @@ function PresetManagerModal._rename(self, entry)
 end
 
 --- Shared helper: edit a single metadata string field (description, author) in place.
+-- For "author", an empty current value is prefilled with the last-used author
+-- name (from the plugin settings) — people tend to submit presets under a
+-- consistent handle.
 local function editMetadataField(self, entry, field_key, dialog_title, on_done)
     local current = (entry.preset and entry.preset[field_key]) or ""
+    if current == "" and field_key == "author" then
+        current = self.bookends.settings:readSetting("preset_submission_author") or ""
+    end
     local dlg
     dlg = InputDialog:new{
         title = dialog_title,
@@ -643,6 +649,10 @@ local function editMetadataField(self, entry, field_key, dialog_title, on_done)
                     -- Refresh in-memory entry.preset so subsequent checks see the new value
                     entry.preset = data
                 end
+                -- Remember author across submissions
+                if field_key == "author" and new_val ~= "" then
+                    self.bookends.settings:saveSetting("preset_submission_author", new_val)
+                end
                 UIManager:close(dlg)
                 if on_done then on_done(new_val) else self.rebuild() end
             end },
@@ -650,6 +660,67 @@ local function editMetadataField(self, entry, field_key, dialog_title, on_done)
     }
     UIManager:show(dlg)
     dlg:onShowKeyboard()
+end
+
+--- Collect every line_font_face + defaults.font_face that isn't a "@family:..."
+-- sentinel (i.e. device-specific TTF paths and specific font names). Returns a
+-- list of { location, font_label } and a flag for whether anything was found.
+local function findNonPortableFonts(preset_data, position_labels)
+    local findings = {}
+    local function short(face)
+        if type(face) ~= "string" or face == "" then return nil end
+        if face:match("^@family:") then return nil end
+        -- Extract a readable name from a path/filename
+        return face:match("([^/]+)%.[tT][tT][fF]$")
+            or face:match("([^/]+)%.[oO][tT][fF]$")
+            or face
+    end
+    if preset_data.defaults and preset_data.defaults.font_face then
+        local s = short(preset_data.defaults.font_face)
+        if s then table.insert(findings, { location = _("Default font"), font = s }) end
+    end
+    if preset_data.positions then
+        for _, pos in ipairs(position_labels) do
+            local p = preset_data.positions[pos.key]
+            if p and p.line_font_face then
+                for i, face in pairs(p.line_font_face) do
+                    local s = short(face)
+                    if s then
+                        table.insert(findings, {
+                            location = T(_("%1, line %2"), pos.label, tostring(i)),
+                            font = s,
+                        })
+                    end
+                end
+            end
+        end
+    end
+    return findings
+end
+
+--- Return a deep-copied preset with every non-portable font override stripped.
+-- Keeps @family:... entries. Used for building the submission payload — the
+-- user's on-disk copy is never modified.
+local function stripNonPortableFonts(preset_data)
+    local clean = util.tableDeepCopy(preset_data)
+    if clean.defaults and clean.defaults.font_face
+       and not tostring(clean.defaults.font_face):match("^@family:") then
+        clean.defaults.font_face = nil
+    end
+    if clean.positions then
+        for _, pos_data in pairs(clean.positions) do
+            if pos_data.line_font_face then
+                local kept = {}
+                for i, face in pairs(pos_data.line_font_face) do
+                    if type(face) == "string" and face:match("^@family:") then
+                        kept[i] = face
+                    end
+                end
+                pos_data.line_font_face = kept
+            end
+        end
+    end
+    return clean
 end
 
 function PresetManagerModal._editDescription(self, entry)
@@ -715,38 +786,72 @@ function PresetManagerModal._submitToGallery(self, entry)
         return
     end
 
-    local slug = slugify(data.name or entry.name)
-    local preset_lua = serializePresetForSubmission(entry)
+    -- Remember the author for future submissions.
+    if data.author and data.author ~= "" then
+        self.bookends.settings:saveSetting("preset_submission_author", data.author)
+    end
 
-    local confirm
-    confirm = ConfirmBox:new{
-        text = T(_("Submit '%1' by %2 to the gallery? A pull request will be opened for review."),
-                 data.name, data.author),
-        ok_text = _("Submit"),
-        cancel_text = _("Cancel"),
-        ok_callback = function()
-            Notification:notify(_("Submitting to gallery…"))
-            local Gallery = require("preset_gallery")
-            local submission = {
-                slug        = slug,
-                name        = data.name,
-                author      = data.author,
-                description = data.description,
-                preset_lua  = preset_lua,
-            }
-            Gallery.submitPreset(submission, "KOReader-Bookends", function(result, err)
-                if result then
-                    UIManager:show(require("ui/widget/infomessage"):new{
-                        text = T(_("Thanks! Your submission is PR #%1.\n\nThe maintainer will review it before it appears in the Gallery."),
-                                 tostring(result.pr_number or "?")),
-                    })
-                else
-                    Notification:notify(T(_("Submission failed: %1"), tostring(err or "unknown")))
-                end
-            end)
-        end,
-    }
-    UIManager:show(confirm)
+    -- Font portability check. Always strip specific-font overrides from the
+    -- submitted copy; if any were found, warn the user first so they can
+    -- cancel and switch to Font-family fonts instead.
+    local non_portable = findNonPortableFonts(data, self.bookends.POSITIONS)
+    local function showConfirmAndSubmit()
+        local clean_data = stripNonPortableFonts(data)
+        local slug = slugify(clean_data.name or entry.name)
+        local preset_lua = serializePresetForSubmission({
+            name = entry.name, filename = entry.filename, preset = clean_data,
+        })
+        local confirm
+        confirm = ConfirmBox:new{
+            text = T(_("Submit '%1' by %2 to the gallery? A pull request will be opened for review."),
+                     clean_data.name, clean_data.author),
+            ok_text = _("Submit"),
+            cancel_text = _("Cancel"),
+            ok_callback = function()
+                Notification:notify(_("Submitting to gallery…"))
+                local Gallery = require("preset_gallery")
+                local submission = {
+                    slug        = slug,
+                    name        = clean_data.name,
+                    author      = clean_data.author,
+                    description = clean_data.description,
+                    preset_lua  = preset_lua,
+                }
+                Gallery.submitPreset(submission, "KOReader-Bookends", function(result, err)
+                    if result then
+                        UIManager:show(require("ui/widget/infomessage"):new{
+                            text = T(_("Thanks! Your submission is PR #%1.\n\nThe maintainer will review it before it appears in the Gallery."),
+                                     tostring(result.pr_number or "?")),
+                        })
+                    else
+                        Notification:notify(T(_("Submission failed: %1"), tostring(err or "unknown")))
+                    end
+                end)
+            end,
+        }
+        UIManager:show(confirm)
+    end
+
+    if #non_portable > 0 then
+        local lines = {
+            _("This preset uses specific fonts that won't exist on other devices. These overrides will be stripped from your submission so other users see their own default font."),
+            "",
+            _("Custom fonts in this preset:"),
+        }
+        for _, f in ipairs(non_portable) do
+            table.insert(lines, "  • " .. f.location .. ": " .. f.font)
+        end
+        table.insert(lines, "")
+        table.insert(lines, _("Tip: for portable presets, pick a Font-family font (Serif, Sans-serif, etc.) instead of a specific one — those adapt to each user's font settings."))
+        UIManager:show(ConfirmBox:new{
+            text = table.concat(lines, "\n"),
+            ok_text = _("Submit anyway"),
+            cancel_text = _("Cancel"),
+            ok_callback = function() showConfirmAndSubmit() end,
+        })
+    else
+        showConfirmAndSubmit()
+    end
 end
 
 function PresetManagerModal._delete(self, entry)
