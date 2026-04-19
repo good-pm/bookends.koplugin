@@ -1152,7 +1152,9 @@ function OverlayWidget.paintProgressBar(bb, x, y, w, h, fraction, ticks, style, 
     else
         local border_fill = resolveColor(custom_fill, Blitbuffer.COLOR_DARK_GRAY)
         local border_bg = resolveColor(custom_bg, Blitbuffer.COLOR_WHITE)
-        local border = 1
+        local border = (colors and colors.border_thickness) or 1
+        if border < 0 then border = 0 end
+        if border > math.floor(thickness / 2) then border = math.floor(thickness / 2) end
         local min_dim = vertical and w or h
         local radius = style == "rounded" and math.floor(min_dim / 2) or 0
         -- Background (use real coordinates for rounded rect API)

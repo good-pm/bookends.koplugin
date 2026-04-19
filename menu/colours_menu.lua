@@ -128,7 +128,7 @@ function Bookends:buildBarColorsMenu()
     local bc = self.settings:readSetting("bar_colors") or {}
 
     local function saveColors()
-        if not bc.fill and not bc.bg and not bc.track and not bc.tick and bc.invert_read_ticks == nil and not bc.tick_height_pct and not bc.border and not bc.invert then
+        if not bc.fill and not bc.bg and not bc.track and not bc.tick and bc.invert_read_ticks == nil and not bc.tick_height_pct and not bc.border and not bc.invert and not bc.border_thickness then
             self.settings:delSetting("bar_colors")
         else
             self.settings:saveSetting("bar_colors", bc)
@@ -183,6 +183,46 @@ function Bookends:buildBarColorsMenu()
         end,
         hold_callback = function(touchmenu_instance)
             self.settings:delSetting("tick_height_pct")
+            self:markDirty()
+            if touchmenu_instance then touchmenu_instance:updateItems() end
+        end,
+    })
+
+    -- Border thickness (pixels). Default 1 — matches stock KOReader bar.
+    -- Setting lives in bar_colors so it persists alongside other colour settings.
+    table.insert(items, {
+        text_func = function()
+            local t = (bc and bc.border_thickness) or 1
+            return _("Border thickness") .. ": " .. t .. "px"
+        end,
+        keep_menu_open = true,
+        callback = function(touchmenu_instance)
+            local current = (bc and bc.border_thickness) or 1
+            self:showNudgeDialog(_("Border thickness"), current, 0, 10, 1, "px",
+                function(val)
+                    bc = self.settings:readSetting("bar_colors") or {}
+                    if val == 1 then
+                        bc.border_thickness = nil
+                    else
+                        bc.border_thickness = val
+                    end
+                    if next(bc) then
+                        self.settings:saveSetting("bar_colors", bc)
+                    else
+                        self.settings:delSetting("bar_colors")
+                    end
+                    self:markDirty()
+                end,
+                nil, nil, nil, touchmenu_instance)
+        end,
+        hold_callback = function(touchmenu_instance)
+            bc = self.settings:readSetting("bar_colors") or {}
+            bc.border_thickness = nil
+            if next(bc) then
+                self.settings:saveSetting("bar_colors", bc)
+            else
+                self.settings:delSetting("bar_colors")
+            end
             self:markDirty()
             if touchmenu_instance then touchmenu_instance:updateItems() end
         end,
