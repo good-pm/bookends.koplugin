@@ -977,6 +977,20 @@ local function submitToGalleryImpl(self, entry)
             ok_text = _("Submit"),
             cancel_text = _("Cancel"),
             ok_callback = function()
+                -- Client-side collision check: if we've refreshed the gallery,
+                -- catch duplicates before the server round-trip so the user
+                -- gets a clear, specific message.
+                if self.gallery_index and self.gallery_index.presets then
+                    for _i, p in ipairs(self.gallery_index.presets) do
+                        if p.slug == slug then
+                            UIManager:show(require("ui/widget/infomessage"):new{
+                                text = T(_("A preset called '%1' is already in the gallery. Rename your preset (Manage… → Rename…) before submitting, so it doesn't collide with the existing entry."),
+                                         clean_data.name),
+                            })
+                            return
+                        end
+                    end
+                end
                 Notification:notify(_("Submitting to gallery…"))
                 local Gallery = require("preset_gallery")
                 local submission = {
@@ -993,7 +1007,20 @@ local function submitToGalleryImpl(self, entry)
                                      tostring(result.pr_number or "?")),
                         })
                     else
-                        Notification:notify(T(_("Submission failed: %1"), tostring(err or "unknown")))
+                        -- Surface errors as an InfoMessage (stays until dismissed)
+                        -- rather than a Notification (fades away). Map the two
+                        -- known collision errors to clearer, actionable copy.
+                        local msg
+                        if err == "slug already exists in the gallery" then
+                            msg = T(_("A preset called '%1' is already in the gallery. Rename your preset (Manage… → Rename…) before submitting."),
+                                    clean_data.name)
+                        elseif err == "a submission for this slug is already open" then
+                            msg = T(_("A submission for '%1' is already awaiting review. Wait for that one to be reviewed, or rename your preset to submit under a different name."),
+                                    clean_data.name)
+                        else
+                            msg = T(_("Submission failed: %1"), tostring(err or "unknown"))
+                        end
+                        UIManager:show(require("ui/widget/infomessage"):new{ text = msg })
                     end
                 end)
             end,
