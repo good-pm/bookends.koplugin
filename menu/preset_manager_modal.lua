@@ -1166,7 +1166,7 @@ function PresetManagerModal._renderGalleryRows(self, vg, width, row_height, font
             fgcolor = Blitbuffer.COLOR_BLACK,
         }
         local intro = TextBoxWidget:new{
-            text = _("Browse presets others have shared, preview them on your own status bar, and install the ones you like. Once installed, you can edit each preset freely on the Local tab."),
+            text = _("Browse presets others have shared, preview them on your own status bar, and install the ones you like. Once installed, you can edit each preset freely on the My presets tab."),
             face = Font:getFace("cfont", 16),
             width = text_width,
             alignment = "center",
