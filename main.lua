@@ -189,7 +189,7 @@ function Bookends:onDispatcherRegisterActions()
     Dispatcher:registerAction("bookends_open_manager", {
         category = "none",
         event = "OpenPresetManager",
-        title = _("Open preset manager"),
+        title = _("Open preset library"),
         reader = true,
     })
 end

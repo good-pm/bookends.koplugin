@@ -319,13 +319,13 @@ function Bookends:buildBookendsSettingsMenu()
 end
 
 --- Preset adjustments: styling tweaks that ARE saved into the active preset.
---- Opens the preset manager as its first item so users can pick/manage
+--- Opens the preset library as its first item so users can pick/manage
 --- presets from the same menu that tweaks the current one.
 function Bookends:buildPresetAdjustmentsMenu()
     local items = {}
 
     table.insert(items, {
-        text = _("Preset manager…"),
+        text = _("Preset library…"),
         keep_menu_open = false,
         callback = function(touchmenu_instance)
             if touchmenu_instance then

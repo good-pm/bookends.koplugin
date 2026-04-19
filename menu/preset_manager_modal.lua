@@ -209,7 +209,7 @@ function PresetManagerModal._rebuild(self)
     -- Title + tab switcher
     local title_face = Font:getFace("infofont", 20)
     local title = TextWidget:new{
-        text = _("Bookends preset manager"),
+        text = _("Preset library"),
         face = title_face,
         bold = true,
         forced_height = row_height,
