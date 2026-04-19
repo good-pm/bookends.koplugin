@@ -401,19 +401,62 @@ function PresetManagerModal._renderLocalRows(self, vg, width, row_height, font_s
         if selected_key == nil then selected_key = "_empty" end
     end
 
-    -- Virtual "(No overlay)" row — only on page 1. It's a cycle slot, not a
-    -- preset: tapping the card is a no-op with an explanatory toast; only the
-    -- star is interactive. "Selected" state reflects the live cycle pointer.
+    -- Virtual "(No overlay)" row — only on page 1. A compact single-line
+    -- strip (not a card) whose total height matches the Gallery tab's
+    -- Refresh button strip so tab-switching doesn't resize the modal.
+    -- It's a cycle slot, not a preset: tap-the-label shows a hint, tap-the-
+    -- star toggles cycle membership (same as every other starred row).
     if self.page == 1 then
-        PresetManagerModal._addRow(self, vg, width, row_height, font_size, baseline, left_pad, {
-            display = _("(No overlay)"),
-            description = _("Star to include a blank slot in your preset cycle."),
-            star_key = "_empty",
-            on_preview = function()
-                Notification:notify(_("Tap the star to include a blank slot when cycling presets."))
-            end,
-            is_selected = (selected_key == "_empty"),
+        local blank_selected = (selected_key == "_empty")
+        local compact_pad_v = Screen:scaleBySize(6)
+        local label_widget = TextWidget:new{
+            text = _("(No overlay)"),
+            face = Font:getFace("cfont", 14),
+            bold = blank_selected,
+            fgcolor = Blitbuffer.COLOR_BLACK,
+        }
+        -- Height is computed the same way the Gallery Refresh button derives
+        -- its own height (text + 2·btn_pad_v + 2·thin border), so the two
+        -- tabs produce identical vertical offsets above the first card.
+        local compact_h = label_widget:getSize().h + 2 * compact_pad_v + 2 * Size.border.thin
+        local star_widget = TextWidget:new{
+            text = isStarred(self.bookends, "_empty") and "\xE2\x98\x85" or "\xE2\x98\x86",
+            face = Font:getFace("infofont", 18),
+            bold = true,
+            fgcolor = Blitbuffer.COLOR_BLACK,
+        }
+        local star_w = Screen:scaleBySize(40)
+        local star_ic = InputContainer:new{
+            dimen = Geom:new{ w = star_w, h = compact_h },
+            CenterContainer:new{ dimen = Geom:new{ w = star_w, h = compact_h }, star_widget },
+        }
+        star_ic.ges_events = { TapSelect = { GestureRange:new{ ges = "tap", range = star_ic.dimen } } }
+        star_ic.onTapSelect = function() self.toggleStar("_empty"); return true end
+
+        local label_inner_w = width - 2 * left_pad - Screen:scaleBySize(6) - star_w
+        local label_ic = InputContainer:new{
+            dimen = Geom:new{ w = label_inner_w, h = compact_h },
+            LeftContainer:new{
+                dimen = Geom:new{ w = label_inner_w, h = compact_h },
+                label_widget,
+            },
+        }
+        label_ic.ges_events = { TapSelect = { GestureRange:new{ ges = "tap", range = label_ic.dimen } } }
+        label_ic.onTapSelect = function()
+            Notification:notify(_("Tap the star to include a blank slot when cycling presets."))
+            return true
+        end
+
+        table.insert(vg, HorizontalGroup:new{
+            align = "center",
+            HorizontalSpan:new{ width = left_pad },
+            label_ic,
+            HorizontalSpan:new{ width = Screen:scaleBySize(6) },
+            star_ic,
         })
+        -- Match the inter-card gap so the first real preset sits at the
+        -- same distance below as subsequent rows sit from each other.
+        table.insert(vg, VerticalSpan:new{ width = Screen:scaleBySize(8) })
     end
 
     -- Real presets, paginated. Page 1 has room for one fewer because of the
