@@ -125,14 +125,15 @@ function Bookends:buildMainMenu()
         })
     end
 
-    -- Full width progress bars (no separator — regions + bars form one
-    -- visual block that IS "the preset's content").
+    -- Full width progress bars — last item of the preset-content block.
+    -- Separator here visually closes the block before Save as new preset.
     table.insert(menu, {
         text = _("Full width progress bars"),
         enabled_func = function() return self.enabled end,
         sub_item_table_func = function()
             return self:buildProgressBarMenu()
         end,
+        separator = true,
     })
 
     -- Save as new preset — reads as "save everything above as a preset".
