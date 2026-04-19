@@ -18,19 +18,7 @@ function Bookends:addToMainMenu(menu_items)
 end
 
 function Bookends:buildMainMenu()
-    local menu = {
-        {
-            text = _("Enable bookends"),
-            checked_func = function()
-                return self.enabled
-            end,
-            callback = function()
-                self.enabled = not self.enabled
-                self.settings:saveSetting("enabled", self.enabled)
-                self:markDirty()
-            end,
-        },
-    }
+    local menu = {}
 
     -- Per-position submenus
     for _, pos in ipairs(self.POSITIONS) do
@@ -83,7 +71,8 @@ function Bookends:buildMainMenu()
         end,
     })
 
-    -- Settings submenu
+    -- Settings submenu — always reachable (even when bookends is disabled),
+    -- because "Enable bookends" now lives inside it.
     table.insert(menu, {
         text_func = function()
             if Updater.getAvailableUpdate() then
@@ -91,9 +80,18 @@ function Bookends:buildMainMenu()
             end
             return _("Settings")
         end,
-        enabled_func = function() return self.enabled end,
         sub_item_table_func = function()
             return {
+                {
+                    text = _("Enable bookends"),
+                    checked_func = function() return self.enabled end,
+                    callback = function()
+                        self.enabled = not self.enabled
+                        self.settings:saveSetting("enabled", self.enabled)
+                        self:markDirty()
+                    end,
+                    separator = true,
+                },
                 {
                     text_func = function()
                         local fam = Utils.getFontFamilyLabel(self.defaults.font_face)

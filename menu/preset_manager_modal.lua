@@ -496,7 +496,7 @@ function PresetManagerModal._addRow(self, vg, width, row_height, font_size, base
         max_width = content_w,
         fgcolor = Blitbuffer.COLOR_BLACK,
     }
-    local title_line = HorizontalGroup:new{ align = "baseline", title_widget }
+    local title_line = HorizontalGroup:new{ align = "bottom", title_widget }
     if not opts.is_virtual and opts.author and opts.author ~= "" then
         table.insert(title_line, HorizontalSpan:new{ width = Screen:scaleBySize(6) })
         table.insert(title_line, TextWidget:new{
