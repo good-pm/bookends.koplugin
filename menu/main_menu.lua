@@ -260,7 +260,47 @@ function Bookends:buildMainMenu()
         end,
     })
 
-    -- Preset Manager (at bottom)
+    -- Preset actions (at bottom)
+    table.insert(menu, {
+        text = _("Save current overlay as preset…"),
+        enabled_func = function() return self.enabled end,
+        keep_menu_open = false,
+        callback = function(touchmenu_instance)
+            if touchmenu_instance then
+                touchmenu_instance:onClose()
+            end
+            local InputDialog = require("ui/widget/inputdialog")
+            local UIManager = require("ui/uimanager")
+            local dlg
+            dlg = InputDialog:new{
+                title = _("Save preset"),
+                input = "",
+                input_hint = _("Preset name"),
+                buttons = {{
+                    { text = _("Cancel"), id = "close",
+                      callback = function() UIManager:close(dlg) end },
+                    { text = _("Save"), is_enter_default = true, callback = function()
+                        local name = dlg:getInputText()
+                        if name and name ~= "" then
+                            local preset = self:buildPreset()
+                            preset.name = name
+                            local filename = self:writePresetFile(name, preset)
+                            self:setActivePresetFilename(filename)
+                            local cycle = self.settings:readSetting("preset_cycle") or {}
+                            table.insert(cycle, filename)
+                            self.settings:saveSetting("preset_cycle", cycle)
+                            local Notification = require("ui/widget/notification")
+                            Notification:notify(_("Saved preset:") .. " " .. name)
+                        end
+                        UIManager:close(dlg)
+                    end },
+                }},
+            }
+            UIManager:show(dlg)
+            dlg:onShowKeyboard()
+        end,
+    })
+
     table.insert(menu, {
         text = _("Bookends preset manager…"),
         enabled_func = function() return self.enabled end,

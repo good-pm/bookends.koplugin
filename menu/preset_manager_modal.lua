@@ -220,24 +220,26 @@ function PresetManagerModal._rebuild(self)
         forced_baseline = baseline,
         fgcolor = Blitbuffer.COLOR_BLACK,
     }
-    -- Segmented toggle: single rounded rectangle with two halves. Active half has
-    -- inverted colors (black bg, white fg) so it reads clearly as the selection.
+    -- Tab-style segmented toggle: each half fills the full row height so the
+    -- bottom edge sits flush with the title-row separator below. Active half
+    -- has inverted colors.
     local function segmentHalf(label, is_active, on_tap)
-        local pad_h = Screen:scaleBySize(14)
-        local pad_v = Screen:scaleBySize(6)
+        local pad_h = Screen:scaleBySize(16)
         local bg = is_active and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_WHITE
         local fg = is_active and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
         local tb = TextWidget:new{
             text = label,
             face = Font:getFace("infofont", 16),
             bold = is_active,
+            forced_height = row_height,
+            forced_baseline = baseline,
             fgcolor = fg,
         }
         local frame = FrameContainer:new{
             bordersize = 0,
             padding = 0,
             padding_left = pad_h, padding_right = pad_h,
-            padding_top = pad_v, padding_bottom = pad_v,
+            padding_top = 0, padding_bottom = 0,
             margin = 0,
             background = bg,
             tb,
@@ -257,8 +259,7 @@ function PresetManagerModal._rebuild(self)
         dimen = Geom:new{ w = Size.line.thin, h = math.max(local_seg:getSize().h, gallery_seg:getSize().h) },
     }
     local segmented = FrameContainer:new{
-        bordersize = Size.border.thin,
-        radius = Size.radius.default,
+        bordersize = 0,
         padding = 0,
         margin = 0,
         background = Blitbuffer.COLOR_WHITE,
@@ -377,60 +378,8 @@ function PresetManagerModal._rebuild(self)
 end
 
 function PresetManagerModal._renderLocalRows(self, vg, width, row_height, font_size, baseline, left_pad)
-    -- Small status + help block: shown above the plus-button row.
-    -- Tells the user what Close would restore to and what ★ means.
-    local active_fn_for_header = self.bookends:getActivePresetFilename()
-    local active_name_for_header = _("(No overlay)")
-    if active_fn_for_header then
-        local presets_lookup = self.bookends:readPresetFiles()
-        for _i, p in ipairs(presets_lookup) do
-            if p.filename == active_fn_for_header then
-                active_name_for_header = p.name
-                break
-            end
-        end
-    end
-    local status_text = T(_("Currently editing: %1"), active_name_for_header)
-    local help_text = _("Tap to preview · ★ marks presets in your cycle gesture")
-    table.insert(vg, LeftContainer:new{
-        dimen = Geom:new{ w = width, h = math.floor(row_height * 0.7) },
-        HorizontalGroup:new{
-            HorizontalSpan:new{ width = left_pad },
-            TextWidget:new{
-                text = status_text,
-                face = Font:getFace("cfont", 14),
-                bold = true,
-                fgcolor = Blitbuffer.COLOR_BLACK,
-            },
-        },
-    })
-    table.insert(vg, LeftContainer:new{
-        dimen = Geom:new{ w = width, h = math.floor(row_height * 0.6) },
-        HorizontalGroup:new{
-            HorizontalSpan:new{ width = left_pad },
-            TextWidget:new{
-                text = help_text,
-                face = Font:getFace("cfont", 11),
-                fgcolor = Blitbuffer.COLOR_DARK_GRAY,
-            },
-        },
-    })
-
-    -- "+ Save current as new preset"
-    local plus = TextWidget:new{
-        text = "+ " .. _("Save current overlay as new preset"),
-        face = Font:getFace("infofont", 16),
-        forced_height = row_height,
-        forced_baseline = baseline,
-        fgcolor = Blitbuffer.COLOR_BLACK,
-    }
-    local plus_ic = InputContainer:new{
-        dimen = Geom:new{ w = width, h = row_height },
-        HorizontalGroup:new{ HorizontalSpan:new{ width = left_pad }, plus },
-    }
-    plus_ic.ges_events = { TapSelect = { GestureRange:new{ ges = "tap", range = plus_ic.dimen } } }
-    plus_ic.onTapSelect = function() PresetManagerModal._saveCurrentAsPreset(self); return true end
-    table.insert(vg, plus_ic)
+    -- A small top gap so cards don't butt against the title separator.
+    table.insert(vg, VerticalSpan:new{ width = Screen:scaleBySize(8) })
 
     -- Work out which row should look "selected" — the one currently previewed,
     -- or the currently-active preset when nothing is being previewed.
@@ -456,7 +405,7 @@ function PresetManagerModal._renderLocalRows(self, vg, width, row_height, font_s
 
     -- Real presets, paginated
     local presets = self.bookends:readPresetFiles()
-    local ROWS_PER_PAGE = 4
+    local ROWS_PER_PAGE = 5
     local total_pages = math.max(1, math.ceil(#presets / ROWS_PER_PAGE))
     if self.page > total_pages then self.page = total_pages end
     local start_idx = (self.page - 1) * ROWS_PER_PAGE + 1
@@ -534,7 +483,12 @@ function PresetManagerModal._addRow(self, vg, width, row_height, font_size, base
     local card_outer_w = width - 2 * left_pad - star_gap - star_width
     local content_w = card_outer_w - 2 * inner_pad - 2 * Size.border.thin
 
-    -- Title
+    -- Secondary text colour: DARK_GRAY on WHITE is fine; on LIGHT_GRAY
+    -- (selected state) we darken to pure black for readable contrast.
+    local secondary_fg = opts.is_selected and Blitbuffer.COLOR_BLACK
+        or Blitbuffer.COLOR_DARK_GRAY
+
+    -- Title line: "Title" + optional " by Author" in smaller lighter type.
     local title_widget = TextWidget:new{
         text = opts.display,
         face = Font:getFace("cfont", 18),
@@ -542,31 +496,31 @@ function PresetManagerModal._addRow(self, vg, width, row_height, font_size, base
         max_width = content_w,
         fgcolor = Blitbuffer.COLOR_BLACK,
     }
-
-    -- Secondary line: description + author. Virtual rows skip this.
-    local secondary_widget
-    if not opts.is_virtual and (opts.description or opts.author) then
-        local secondary_text = opts.description or ""
-        if opts.author and opts.author ~= "" then
-            if secondary_text ~= "" then
-                secondary_text = secondary_text .. "   \xE2\x80\x94 " .. opts.author
-            else
-                secondary_text = opts.author
-            end
-        end
-        if secondary_text ~= "" then
-            secondary_widget = TextWidget:new{
-                text = secondary_text,
-                face = Font:getFace("cfont", 12),
-                max_width = content_w,
-                fgcolor = Blitbuffer.COLOR_DARK_GRAY,
-            }
-        end
+    local title_line = HorizontalGroup:new{ align = "baseline", title_widget }
+    if not opts.is_virtual and opts.author and opts.author ~= "" then
+        table.insert(title_line, HorizontalSpan:new{ width = Screen:scaleBySize(6) })
+        table.insert(title_line, TextWidget:new{
+            text = _("by") .. " " .. opts.author,
+            face = Font:getFace("cfont", 12),
+            max_width = content_w - title_widget:getWidth(),
+            fgcolor = secondary_fg,
+        })
     end
 
-    local content_group = VerticalGroup:new{ align = "left", title_widget }
-    if secondary_widget then
-        table.insert(content_group, secondary_widget)
+    -- Description-only second line (author is in the title line now).
+    local description_widget
+    if not opts.is_virtual and opts.description and opts.description ~= "" then
+        description_widget = TextWidget:new{
+            text = opts.description,
+            face = Font:getFace("cfont", 12),
+            max_width = content_w,
+            fgcolor = secondary_fg,
+        }
+    end
+
+    local content_group = VerticalGroup:new{ align = "left", title_line }
+    if description_widget then
+        table.insert(content_group, description_widget)
     end
 
     local content_row = LeftContainer:new{
