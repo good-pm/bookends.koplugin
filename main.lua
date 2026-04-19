@@ -129,6 +129,23 @@ function Bookends:init()
     -- Preset Manager: one-time migration + first-run provisioning
     self:runPresetManagerMigration()
 
+    -- Re-apply the active preset on startup to re-establish the invariant
+    -- "live settings == active preset file". An interrupted preview (crash,
+    -- back-button dismissal) can leave bookends.lua holding the preview's
+    -- state while active_preset_filename still points at the previous
+    -- preset. Without this, the next autosave flush would overwrite the
+    -- active preset file with the leaked preview data.
+    do
+        local active = self:getActivePresetFilename()
+        if active then
+            local lfs = require("libs/libkoreader-lfs")
+            local path = self:presetDir() .. "/" .. active
+            if lfs.attributes(path, "mode") == "file" then
+                pcall(self.applyPresetFile, self, active)
+            end
+        end
+    end
+
     -- Register gesture/dispatcher actions
     self:onDispatcherRegisterActions()
 
