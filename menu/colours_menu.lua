@@ -4,9 +4,11 @@ local _ = require("i18n").gettext
 
 return function(Bookends)
 
---- Build the 7 shared colour items used by bar colours (read / unread /
---- metro-track / tick / invert toggle / border / tick-invert).
-function Bookends:_buildColorItems(bc, saveColors)
+--- Build the shared colour items used by bar colours (read / unread /
+--- metro-track / tick / invert toggle / border / border thickness / tick-invert).
+--- When is_per_bar is true, the Border thickness item inherits the global
+--- bar_colors.border_thickness as its default instead of the hard-coded 1px.
+function Bookends:_buildColorItems(bc, saveColors, is_per_bar)
     local function colorNudge(title, field, default_pct, touchmenu_instance)
         local current = bc[field] and math.floor((0xFF - bc[field]) * 100 / 0xFF + 0.5) or default_pct
         self:showNudgeDialog(title, current, 0, 100, default_pct, "%",
@@ -110,6 +112,38 @@ function Bookends:_buildColorItems(bc, saveColors)
         },
         {
             text_func = function()
+                if bc.border_thickness then
+                    return _("Border thickness") .. ": " .. bc.border_thickness .. "px"
+                end
+                if is_per_bar then
+                    local gbc = self.settings:readSetting("bar_colors")
+                    local gt = (gbc and gbc.border_thickness) or 1
+                    return _("Border thickness") .. ": " .. _("default") .. " (" .. gt .. "px)"
+                end
+                return _("Border thickness") .. ": 1px"
+            end,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                local default_val = 1
+                if is_per_bar then
+                    local gbc = self.settings:readSetting("bar_colors")
+                    if gbc and gbc.border_thickness then default_val = gbc.border_thickness end
+                end
+                local current = bc.border_thickness or default_val
+                self:showNudgeDialog(_("Border thickness"), current, 0, 10, default_val, "px",
+                    function(val)
+                        bc.border_thickness = (val ~= default_val) and val or nil
+                        saveColors()
+                    end,
+                    nil, nil, nil, touchmenu_instance)
+            end,
+            hold_callback = function(touchmenu_instance)
+                bc.border_thickness = nil; saveColors()
+                if touchmenu_instance then touchmenu_instance:updateItems() end
+            end,
+        },
+        {
+            text_func = function()
                 return _("Tick inversion color") .. ": " .. pctLabel("invert")
             end,
             keep_menu_open = true,
@@ -128,7 +162,7 @@ function Bookends:buildBarColorsMenu()
     local bc = self.settings:readSetting("bar_colors") or {}
 
     local function saveColors()
-        if not bc.fill and not bc.bg and not bc.track and not bc.tick and bc.invert_read_ticks == nil and not bc.tick_height_pct and not bc.border and not bc.invert then
+        if not bc.fill and not bc.bg and not bc.track and not bc.tick and bc.invert_read_ticks == nil and not bc.tick_height_pct and not bc.border and not bc.invert and not bc.border_thickness then
             self.settings:delSetting("bar_colors")
         else
             self.settings:saveSetting("bar_colors", bc)

@@ -252,17 +252,28 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
     -- Builds a table of per-occurrence limits keyed by a running counter per token,
     -- and strips {N} from the format string so existing expansion works unchanged.
     local token_limits = {}  -- { ["%C"] = { [1] = 200 }, ["%T"] = { [1] = 300 } }
-    local bar_limit_w = nil  -- pixel width for %bar{N}, stored separately
-    local has_limits = format_str:find("{%d+}")
-    if has_limits then
-        -- Extract %bar{N} first (before single-char tokens, to avoid %b matching)
-        format_str = format_str:gsub("%%bar{(%d+)}", function(n)
-            local px = tonumber(n)
-            if px and px > 0 then
-                bar_limit_w = px
-            end
-            return "%bar"
-        end)
+    local bar_limit_w = nil  -- pixel width from %bar{N} or %bar{Nv…}
+    local bar_limit_h = nil  -- pixel height from %bar{v…}
+    -- Bar syntax (always evaluated so it handles non-numeric contents like {v10}):
+    --   %bar               auto width, default height
+    --   %bar{100}          100px wide, default height
+    --   %bar{v10}          auto width, 10px tall
+    --   %bar{100v10}       100px wide, 10px tall
+    format_str = format_str:gsub("%%bar{([^}]+)}", function(spec)
+        local w = spec:match("^(%d+)")
+        local h = spec:match("v(%d+)")
+        if w then
+            local px = tonumber(w)
+            if px and px > 0 then bar_limit_w = px end
+        end
+        if h then
+            local px = tonumber(h)
+            if px and px > 0 then bar_limit_h = px end
+        end
+        return "%bar"
+    end)
+    -- Other tokens still use {N} numeric-only for pixel-width limits.
+    if format_str:find("{%d+}") then
         -- Extract %C<depth>{N} (depth-specific chapter title with width limit)
         format_str = format_str:gsub("%%C(%d){(%d+)}", function(depth, n)
             local px = tonumber(n)
@@ -503,6 +514,9 @@ function Tokens.expand(format_str, ui, session_elapsed, session_pages_read, prev
         bar_info.chapter = { kind = "chapter", pct = ch_pct, ticks = {} }
         if bar_limit_w then
             bar_info.width = bar_limit_w
+        end
+        if bar_limit_h then
+            bar_info.height = bar_limit_h
         end
     end
 

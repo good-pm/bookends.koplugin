@@ -40,15 +40,19 @@ A few examples to show how format strings work. Type these in the line editor, o
 
 You don't need to memorise tokens — the editor has a **Tokens** picker with the full list, and a **live preview** that updates as you type. The built-in presets and the token reference below cover much more.
 
-### Built-in presets
+### Preset Manager
 
-Three presets are included to get you started — load one and customise from there:
+Open **Bookends → Bookends preset manager…** (or bind the *Open preset manager* gesture) for a single central modal that handles everything: creating, editing, starring for the cycle gesture, and browsing community presets from an online gallery.
 
-- **Speed Reader** — Session timer, reading speed, time remaining, progress percentages
-- **Classic Alternating** — Book title on even pages, chapter on odd, page number at bottom
-- **Rich Detail** — All six positions with clock, battery, Wi-Fi, brightness, highlights, and more
+**Local tab** — your presets. Tap any row to preview it live on your overlay. Tap **Apply** to commit; tap **Close** to revert. Tap the ★ on the left of a row to add/remove it from the cycle gesture. Use **+ Save current as new preset** to snapshot your current overlay. Long-press any preset row to rename, edit its description, duplicate, or delete it.
 
-Save your own presets via **Presets > Custom presets > Create new preset from current settings**.
+A virtual **(No overlay)** row lets you star "nothing" for the cycle — useful for quickly hiding all overlays with a gesture.
+
+When a preset is "active", your subsequent overlay edits **autosave back to the file** — no separate save step. Tweak in the regular menus, it's saved.
+
+**Gallery tab** — community presets from [**AndyHazz/bookends-presets**](https://github.com/AndyHazz/bookends-presets). Tap a preset to preview it live; tap **Install** to save it locally. Presets already installed on your device show a ✓ indicator. Fresh installs ship with **Basic bookends** as a starter; the classic *Rich Detail*, *Speed Reader*, *Classic Alternating* and *SimpleUI status bar* presets are available from the Gallery.
+
+Want to share a preset? See the [gallery repo's README](https://github.com/AndyHazz/bookends-presets#for-contributors--how-to-submit-a-preset) for the submission flow.
 
 ### Screen positions
 

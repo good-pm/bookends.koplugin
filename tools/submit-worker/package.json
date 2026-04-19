@@ -1,0 +1,16 @@
+{
+  "name": "bookends-submit-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker that receives preset submissions from the bookends plugin and opens PRs on bookends-presets.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^4.0.0"
+  }
+}

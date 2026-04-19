@@ -81,6 +81,8 @@ local function validatePreset(data)
     -- Allow only known top-level keys (unknown ones accepted silently for forward compat)
     local EXPECTED_TYPES = {
         name = "string",
+        description = "string",
+        author = "string",
         enabled = "boolean",
         defaults = "table",
         positions = "table",
@@ -237,9 +239,12 @@ function PresetManager.attach(Bookends)
         return new_filename
     end
 
-    function Bookends:updatePresetFile(filename, name)
+    -- Overwrites `filename` with preset_data (or the current overlay config when
+    -- preset_data is nil). Unlike writePresetFile, this does NOT auto-rename on
+    -- collision — it's the "update an existing preset" path.
+    function Bookends:updatePresetFile(filename, name, preset_data)
         local path = self:presetDir() .. "/" .. filename
-        local preset_data = self:buildPreset()
+        preset_data = preset_data or self:buildPreset()
         preset_data.name = name
         writePresetContents(path, name, preset_data)
     end
@@ -257,6 +262,63 @@ function PresetManager.attach(Bookends)
         self.settings:delSetting("presets")
         self.settings:delSetting("last_cycled_preset")
         self.settings:flush()
+    end
+
+    --- Read the filename of the currently-open Personal preset, or nil.
+    function Bookends:getActivePresetFilename()
+        return self.settings:readSetting("active_preset_filename")
+    end
+
+    --- Human-readable name of the active preset (the `name` field from its
+    --- file), or nil when no preset is active or the file can't be read.
+    function Bookends:getActivePresetName()
+        local filename = self:getActivePresetFilename()
+        if not filename then return nil end
+        for _, p in ipairs(self:readPresetFiles()) do
+            if p.filename == filename then return p.name end
+        end
+        return nil
+    end
+
+    --- Set (or clear with nil) the active preset file.
+    function Bookends:setActivePresetFilename(filename)
+        if filename then
+            self.settings:saveSetting("active_preset_filename", filename)
+        else
+            self.settings:delSetting("active_preset_filename")
+        end
+    end
+
+    --- Given a preset filename, load it + set it active. Returns true on success.
+    function Bookends:applyPresetFile(filename)
+        local path = self:presetDir() .. "/" .. filename
+        local data, err = loadPresetFile(path)
+        if not data then return false, err end
+        data = validatePreset(data)
+        if not data then return false, "validation failed" end
+        local ok, lerr = pcall(self.loadPreset, self, data)
+        if not ok then return false, lerr end
+        self:setActivePresetFilename(filename)
+        return true
+    end
+
+    --- Serialize current overlay state to the active preset file.
+    --- No-op if there's no active preset or if previewing.
+    function Bookends:autosaveActivePreset()
+        if self._previewing then return end
+        local filename = self:getActivePresetFilename()
+        if not filename then return end
+        self:ensurePresetDir()
+        local path = self:presetDir() .. "/" .. filename
+        local preset_data = self:buildPreset()
+        -- Preserve metadata from the on-disk file if present.
+        local existing = loadPresetFile(path)
+        if existing then
+            preset_data.name = existing.name or preset_data.name
+            preset_data.description = existing.description
+            preset_data.author = existing.author
+        end
+        writePresetContents(path, preset_data.name or filename, preset_data)
     end
 end
 

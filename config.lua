@@ -60,4 +60,12 @@ Config.LEGACY_GLOBAL_KEYS = {
     "overlap_gap", "truncation_priority", "presets", "last_cycled_preset",
 }
 
+--- Settings keys introduced by the Preset Manager. Documented here so all
+--- persistence-related settings are visible in one place. No runtime use.
+Config.PRESET_MANAGER_KEYS = {
+    "active_preset_filename",        -- string: filename of the currently-open preset
+    "preset_cycle",                  -- array of preset filenames
+    "preset_manager_migration_done", -- boolean: one-time migration ran
+}
+
 return Config

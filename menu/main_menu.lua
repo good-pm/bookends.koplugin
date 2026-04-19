@@ -17,22 +17,76 @@ function Bookends:addToMainMenu(menu_items)
     }
 end
 
-function Bookends:buildMainMenu()
-    local menu = {
-        {
-            text = _("Enable bookends"),
-            checked_func = function()
-                return self.enabled
-            end,
-            callback = function()
-                self.enabled = not self.enabled
-                self.settings:saveSetting("enabled", self.enabled)
-                self:markDirty()
-            end,
-        },
+--- Save current overlay as a new preset — opens an input dialog.
+--- Extracted so the top-level Bookends menu and any future entry point
+--- can share the flow.
+local function saveAsNewPresetDialog(self)
+    local InputDialog = require("ui/widget/inputdialog")
+    local UIManager = require("ui/uimanager")
+    local dlg
+    dlg = InputDialog:new{
+        title = _("Save preset"),
+        input = "",
+        input_hint = _("Preset name"),
+        buttons = {{
+            { text = _("Cancel"), id = "close",
+              callback = function() UIManager:close(dlg) end },
+            { text = _("Save"), is_enter_default = true, callback = function()
+                local name = dlg:getInputText()
+                if name and name ~= "" then
+                    local preset = self:buildPreset()
+                    preset.name = name
+                    local filename = self:writePresetFile(name, preset)
+                    self:setActivePresetFilename(filename)
+                    local cycle = self.settings:readSetting("preset_cycle") or {}
+                    table.insert(cycle, filename)
+                    self.settings:saveSetting("preset_cycle", cycle)
+                    local Notification = require("ui/widget/notification")
+                    Notification:notify(_("Saved preset:") .. " " .. name)
+                end
+                UIManager:close(dlg)
+            end },
+        }},
     }
+    UIManager:show(dlg)
+    dlg:onShowKeyboard()
+end
 
-    -- Per-position submenus
+function Bookends:buildMainMenu()
+    local menu = {}
+
+    -- Bookends settings: global preferences (never saved with presets).
+    table.insert(menu, {
+        text_func = function()
+            if Updater.getAvailableUpdate() then
+                return _("Bookends settings") .. " (" .. _("plugin update available") .. ")"
+            end
+            return _("Bookends settings")
+        end,
+        separator = true,
+        sub_item_table_func = function()
+            return self:buildBookendsSettingsMenu()
+        end,
+    })
+
+    -- Preset submenu: styling settings that ARE saved with the current
+    -- preset. Title includes the active preset name so the user can see at
+    -- a glance which preset these tweaks will affect.
+    table.insert(menu, {
+        text_func = function()
+            local name = self:getActivePresetName()
+            if name then
+                return _("Preset") .. " (" .. name .. ")"
+            end
+            return _("Preset")
+        end,
+        enabled_func = function() return self.enabled end,
+        sub_item_table_func = function()
+            return self:buildPresetAdjustmentsMenu()
+        end,
+    })
+
+    -- Per-position submenus with inline previews.
     for _, pos in ipairs(self.POSITIONS) do
         table.insert(menu, {
             text_func = function()
@@ -71,205 +125,311 @@ function Bookends:buildMainMenu()
         })
     end
 
-    -- Add separator after last position entry
-    menu[#menu].separator = true
-
-    -- Progress bars submenu
+    -- Full width progress bars — last item of the preset-content block.
+    -- Separator here visually closes the block before Save as new preset.
     table.insert(menu, {
         text = _("Full width progress bars"),
         enabled_func = function() return self.enabled end,
         sub_item_table_func = function()
             return self:buildProgressBarMenu()
         end,
+        separator = true,
     })
 
-    -- Settings submenu
+    -- Save as new preset — reads as "save everything above as a preset".
     table.insert(menu, {
-        text_func = function()
-            if Updater.getAvailableUpdate() then
-                return _("Settings") .. " (" .. _("plugin update available") .. ")"
+        text = _("Save as new preset…"),
+        enabled_func = function() return self.enabled end,
+        keep_menu_open = false,
+        callback = function(touchmenu_instance)
+            if touchmenu_instance then
+                touchmenu_instance:onClose()
             end
-            return _("Settings")
-        end,
-        enabled_func = function() return self.enabled end,
-        sub_item_table_func = function()
-            return {
-                {
-                    text_func = function()
-                        local fam = Utils.getFontFamilyLabel(self.defaults.font_face)
-                        if fam then
-                            return _("Default font") .. " (" .. fam.label .. ")"
-                        end
-                        local ok, FontChooser = pcall(require, "ui/widget/fontchooser")
-                        local name
-                        if ok and FontChooser and FontChooser.getFontNameText then
-                            name = FontChooser.getFontNameText(self.defaults.font_face)
-                        end
-                        if not name then
-                            name = self.defaults.font_face:match("([^/]+)$"):gsub("%.%w+$", "")
-                        end
-                        return _("Default font") .. " (" .. name .. ")"
-                    end,
-                    callback = function()
-                        -- Remember which positions are using the current default
-                        local inheriting = {}
-                        for _, p in ipairs(self.POSITIONS) do
-                            local ps = self.positions[p.key]
-                            if ps.font_face == nil or ps.font_face == self.defaults.font_face then
-                                inheriting[p.key] = true
-                            end
-                        end
-                        self:showFontPicker(self.defaults.font_face, function(face)
-                            self.defaults.font_face = face
-                            self.settings:saveSetting("font_face", face)
-                            -- Cascade: clear per-position font_face for positions that were inheriting
-                            for _, p in ipairs(self.POSITIONS) do
-                                if inheriting[p.key] then
-                                    self.positions[p.key].font_face = nil
-                                    self:savePositionSetting(p.key)
-                                end
-                            end
-                            self:markDirty()
-                        end, Font.fontmap["ffont"])
-                    end,
-                },
-                {
-                    text_func = function()
-                        return _("Font scale") .. " (" .. self.defaults.font_scale .. "%)"
-                    end,
-                    keep_menu_open = true,
-                    callback = function(touchmenu_instance)
-                        self:showNudgeDialog(_("Font scale"), self.defaults.font_scale, 25, 300, 100, "%",
-                            function(val)
-                                self.defaults.font_scale = val
-                                self:markDirty()
-                            end,
-                            function()
-                                self.settings:saveSetting("font_scale", self.defaults.font_scale)
-                            end, nil, nil, touchmenu_instance)
-                    end,
-                },
-                {
-                    text_func = function()
-                        local m = self.defaults
-                        return _("Adjust margins") .. " (" .. m.margin_top .. "/" .. m.margin_bottom .. "/" .. m.margin_left .. "/" .. m.margin_right .. ")"
-                    end,
-                    keep_menu_open = true,
-                    callback = function(touchmenu_instance)
-                        self:showMarginAdjuster(touchmenu_instance)
-                    end,
-                },
-                {
-                    text_func = function()
-                        return _("Truncation gap between regions") .. " (" .. self.defaults.overlap_gap .. ")"
-                    end,
-                    keep_menu_open = true,
-                    callback = function(touchmenu_instance)
-                        self:showNudgeDialog(_("Truncation gap"), self.defaults.overlap_gap, 0, 999, 50, "px",
-                            function(val)
-                                self.defaults.overlap_gap = val
-                                self.settings:saveSetting("overlap_gap", val)
-                                self:markDirty()
-                            end,
-                            nil, nil, nil, touchmenu_instance)
-                    end,
-                },
-                {
-                    text = _("Prioritise left/right and truncate long center text"),
-                    keep_menu_open = true,
-                    checked_func = function()
-                        return self.defaults.truncation_priority == "sides"
-                    end,
-                    callback = function()
-                        if self.defaults.truncation_priority == "sides" then
-                            self.defaults.truncation_priority = "center"
-                        else
-                            self.defaults.truncation_priority = "sides"
-                        end
-                        self.settings:saveSetting("truncation_priority", self.defaults.truncation_priority)
-                        self:markDirty()
-                    end,
-                },
-                {
-                    text = _("Colors and tick marks"),
-                    sub_item_table_func = function()
-                        return self:buildColoursMenu()
-                    end,
-                    separator = true,
-                },
-                {
-                    text = _("Long-press progress bars to skim document"),
-                    checked_func = function()
-                        return self.skim_on_hold
-                    end,
-                    callback = function()
-                        self.skim_on_hold = not self.skim_on_hold
-                        self.settings:saveSetting("skim_on_hold", self.skim_on_hold)
-                    end,
-                    help_text = _("Opens the skim dialog when you long-press on a full-width progress bar. Replaces the stock status bar's long-press to skim feature."),
-                },
-                {
-                    text_func = function()
-                        if not self.stock_bar_disabled then
-                            return _("Disable stock status bar") .. " (" .. _("recommended") .. ")"
-                        end
-                        return _("Disable stock status bar")
-                    end,
-                    keep_menu_open = true,
-                    help_text = _("Hides KOReader's built-in status bar. This simplifies the render pipeline and can reduce e-ink flicker on some devices. All status bar features are available as Bookends tokens."),
-                    checked_func = function()
-                        return self.stock_bar_disabled
-                    end,
-                    callback = function()
-                        local footer = self.ui.view.footer
-                        self.stock_bar_disabled = not self.stock_bar_disabled
-                        self.settings:saveSetting("stock_bar_disabled", self.stock_bar_disabled)
-                        if self.stock_bar_disabled then
-                            footer:applyFooterMode(footer.mode_list.off)
-                        else
-                            footer:applyFooterMode(footer.mode_list.page_progress)
-                        end
-                        self:markDirty()
-                    end,
-                },
-                {
-                    text = _("Notify on wake when update available"),
-                    checked_func = function()
-                        return self.check_updates
-                    end,
-                    callback = function()
-                        self.check_updates = not self.check_updates
-                        self.settings:saveSetting("check_updates", self.check_updates)
-                    end,
-                },
-                {
-                    text_func = function()
-                        local current = Updater.getInstalledVersion()
-                        local available = Updater.getAvailableUpdate()
-                        if available then
-                            return _("Update available") .. ": v" .. current .. " \xE2\x86\x92 v" .. available
-                        end
-                        return _("Installed version") .. ": v" .. current
-                    end,
-                    keep_menu_open = true,
-                    callback = function()
-                        self:checkForUpdates()
-                    end,
-                },
-            }
-        end,
-    })
-
-    -- Presets (at bottom)
-    table.insert(menu, {
-        text = _("Presets"),
-        enabled_func = function() return self.enabled end,
-        sub_item_table_func = function()
-            return self:buildPresetsMenu()
+            saveAsNewPresetDialog(self)
         end,
     })
 
     return menu
+end
+
+--- Global Bookends settings (never saved with presets).
+function Bookends:buildBookendsSettingsMenu()
+    return {
+        {
+            text = _("Enable bookends"),
+            checked_func = function() return self.enabled end,
+            callback = function()
+                self.enabled = not self.enabled
+                self.settings:saveSetting("enabled", self.enabled)
+                self:markDirty()
+            end,
+        },
+        {
+            text_func = function()
+                if not self.stock_bar_disabled then
+                    return _("Disable stock status bar") .. " (" .. _("recommended") .. ")"
+                end
+                return _("Disable stock status bar")
+            end,
+            keep_menu_open = true,
+            help_text = _("Hides KOReader's built-in status bar. This simplifies the render pipeline and can reduce e-ink flicker on some devices. All status bar features are available as Bookends tokens."),
+            checked_func = function()
+                return self.stock_bar_disabled
+            end,
+            callback = function()
+                local footer = self.ui.view.footer
+                self.stock_bar_disabled = not self.stock_bar_disabled
+                self.settings:saveSetting("stock_bar_disabled", self.stock_bar_disabled)
+                if self.stock_bar_disabled then
+                    footer:applyFooterMode(footer.mode_list.off)
+                else
+                    footer:applyFooterMode(footer.mode_list.page_progress)
+                end
+                self:markDirty()
+            end,
+            separator = true,
+        },
+        {
+            text_func = function()
+                local fam = Utils.getFontFamilyLabel(self.defaults.font_face)
+                if fam then
+                    return _("Default font") .. " (" .. fam.label .. ")"
+                end
+                local ok, FontChooser = pcall(require, "ui/widget/fontchooser")
+                local name
+                if ok and FontChooser and FontChooser.getFontNameText then
+                    name = FontChooser.getFontNameText(self.defaults.font_face)
+                end
+                if not name then
+                    name = self.defaults.font_face:match("([^/]+)$"):gsub("%.%w+$", "")
+                end
+                return _("Default font") .. " (" .. name .. ")"
+            end,
+            callback = function()
+                local inheriting = {}
+                for _, p in ipairs(self.POSITIONS) do
+                    local ps = self.positions[p.key]
+                    if ps.font_face == nil or ps.font_face == self.defaults.font_face then
+                        inheriting[p.key] = true
+                    end
+                end
+                self:showFontPicker(self.defaults.font_face, function(face)
+                    self.defaults.font_face = face
+                    self.settings:saveSetting("font_face", face)
+                    for _, p in ipairs(self.POSITIONS) do
+                        if inheriting[p.key] then
+                            self.positions[p.key].font_face = nil
+                            self:savePositionSetting(p.key)
+                        end
+                    end
+                    self:markDirty()
+                end, Font.fontmap["ffont"])
+            end,
+        },
+        {
+            text_func = function()
+                local action = self.settings:readSetting("bottom_center_tap_action")
+                local label = _("Bottom center tap gesture")
+                if action == "toggle" then
+                    return label .. " (" .. _("toggle bookends") .. ")"
+                elseif action == "cycle" then
+                    return label .. " (" .. _("cycle presets") .. ")"
+                elseif action == "library" then
+                    return label .. " (" .. _("preset library") .. ")"
+                end
+                return label
+            end,
+            help_text = _("Configure what happens when you tap the centre of the status bar area, and whether long-pressing a progress bar opens the skim dialog."),
+            sub_item_table_func = function()
+                local function setTapAction(val)
+                    if val == nil then
+                        self.settings:delSetting("bottom_center_tap_action")
+                    else
+                        self.settings:saveSetting("bottom_center_tap_action", val)
+                    end
+                end
+                return {
+                    {
+                        text = _("Toggle bookends"),
+                        checked_func = function()
+                            return self.settings:readSetting("bottom_center_tap_action") == "toggle"
+                        end,
+                        callback = function()
+                            if self.settings:readSetting("bottom_center_tap_action") == "toggle" then
+                                setTapAction(nil)
+                            else
+                                setTapAction("toggle")
+                            end
+                        end,
+                        radio = true,
+                    },
+                    {
+                        text = _("Cycle starred presets"),
+                        checked_func = function()
+                            return self.settings:readSetting("bottom_center_tap_action") == "cycle"
+                        end,
+                        callback = function()
+                            if self.settings:readSetting("bottom_center_tap_action") == "cycle" then
+                                setTapAction(nil)
+                            else
+                                setTapAction("cycle")
+                            end
+                        end,
+                        radio = true,
+                    },
+                    {
+                        text = _("Open preset library"),
+                        checked_func = function()
+                            return self.settings:readSetting("bottom_center_tap_action") == "library"
+                        end,
+                        callback = function()
+                            if self.settings:readSetting("bottom_center_tap_action") == "library" then
+                                setTapAction(nil)
+                            else
+                                setTapAction("library")
+                            end
+                        end,
+                        radio = true,
+                        separator = true,
+                    },
+                    {
+                        text = _("Long-press progress bars to skim document"),
+                        checked_func = function()
+                            return self.skim_on_hold
+                        end,
+                        callback = function()
+                            self.skim_on_hold = not self.skim_on_hold
+                            self.settings:saveSetting("skim_on_hold", self.skim_on_hold)
+                        end,
+                        help_text = _("Opens the skim dialog when you long-press on a full-width progress bar. Replaces the stock status bar's long-press to skim feature."),
+                    },
+                }
+            end,
+            separator = true,
+        },
+        {
+            text = _("Notify on wake when update available"),
+            checked_func = function()
+                return self.check_updates
+            end,
+            callback = function()
+                self.check_updates = not self.check_updates
+                self.settings:saveSetting("check_updates", self.check_updates)
+            end,
+        },
+        {
+            text_func = function()
+                local current = Updater.getInstalledVersion()
+                local available = Updater.getAvailableUpdate()
+                if available then
+                    return _("Update available") .. ": v" .. current .. " \xE2\x86\x92 v" .. available
+                end
+                return _("Installed version") .. ": v" .. current
+            end,
+            keep_menu_open = true,
+            callback = function()
+                self:checkForUpdates()
+            end,
+        },
+    }
+end
+
+--- Preset submenu: styling tweaks that ARE saved into the active preset.
+--- Opens the preset library as its first item so users can pick/manage
+--- presets from the same menu that tweaks the current one.
+function Bookends:buildPresetAdjustmentsMenu()
+    local items = {}
+
+    table.insert(items, {
+        text = _("Preset library…"),
+        keep_menu_open = false,
+        callback = function(touchmenu_instance)
+            if touchmenu_instance then
+                touchmenu_instance:onClose()
+            end
+            local PresetManagerModal = require("menu/preset_manager_modal")
+            PresetManagerModal.show(self)
+        end,
+        separator = true,
+    })
+
+    table.insert(items, {
+        text_func = function()
+            return _("Font scale") .. " (" .. self.defaults.font_scale .. "%)"
+        end,
+        keep_menu_open = true,
+        callback = function(touchmenu_instance)
+            self:showNudgeDialog(_("Font scale"), self.defaults.font_scale, 25, 300, 100, "%",
+                function(val)
+                    self.defaults.font_scale = val
+                    self:markDirty()
+                end,
+                function()
+                    self.settings:saveSetting("font_scale", self.defaults.font_scale)
+                end, nil, nil, touchmenu_instance)
+        end,
+    })
+
+    table.insert(items, {
+        text_func = function()
+            local m = self.defaults
+            return _("Adjust margins") .. " (" .. m.margin_top .. "/" .. m.margin_bottom .. "/" .. m.margin_left .. "/" .. m.margin_right .. ")"
+        end,
+        keep_menu_open = true,
+        callback = function(touchmenu_instance)
+            self:showMarginAdjuster(touchmenu_instance)
+        end,
+    })
+
+    table.insert(items, {
+        text_func = function()
+            return _("Truncation gap between regions") .. " (" .. self.defaults.overlap_gap .. ")"
+        end,
+        keep_menu_open = true,
+        callback = function(touchmenu_instance)
+            self:showNudgeDialog(_("Truncation gap"), self.defaults.overlap_gap, 0, 999, 50, "px",
+                function(val)
+                    self.defaults.overlap_gap = val
+                    self.settings:saveSetting("overlap_gap", val)
+                    self:markDirty()
+                end,
+                nil, nil, nil, touchmenu_instance)
+        end,
+    })
+
+    table.insert(items, {
+        text = _("Prioritise left/right and truncate long center text"),
+        keep_menu_open = true,
+        checked_func = function()
+            return self.defaults.truncation_priority == "sides"
+        end,
+        callback = function()
+            if self.defaults.truncation_priority == "sides" then
+                self.defaults.truncation_priority = "center"
+            else
+                self.defaults.truncation_priority = "sides"
+            end
+            self.settings:saveSetting("truncation_priority", self.defaults.truncation_priority)
+            self:markDirty()
+        end,
+        separator = true,
+    })
+
+    -- Text colour + Symbol colour flattened one level up for easier access.
+    for _, item in ipairs(self:buildTextColourMenu()) do
+        table.insert(items, item)
+    end
+
+    -- Progress bar colours remain nested — too many sub-items to flatten
+    -- without overflowing the 10-row limit.
+    table.insert(items, {
+        text = _("Progress bar colors and tick marks"),
+        sub_item_table_func = function()
+            return self:buildBarColorsMenu()
+        end,
+    })
+
+    return items
 end
 
 end

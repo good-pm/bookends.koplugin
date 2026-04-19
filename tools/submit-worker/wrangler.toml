@@ -1,0 +1,13 @@
+name = "bookends-submit"
+main = "src/worker.ts"
+compatibility_date = "2025-06-01"
+
+# Override any of these via `wrangler.toml` [vars] or Cloudflare dashboard → Settings → Variables
+[vars]
+GITHUB_OWNER = "AndyHazz"
+GITHUB_REPO = "bookends-presets"
+MAX_OPEN_PRS = "20"
+IP_COOLDOWN_SECONDS = "300"
+
+# GITHUB_TOKEN is a secret — set via:
+#   wrangler secret put GITHUB_TOKEN

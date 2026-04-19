@@ -34,6 +34,9 @@ Bookends.TOKEN_CATALOG = {
     }},
     { _("Progress bars"), {
         { "%bar", _("Progress bar (configure type in line editor)") },
+        { "%bar{100}", _("Fixed-width progress bar (100px)") },
+        { "%bar{v10}", _("Progress bar, 10px tall") },
+        { "%bar{200v4}", _("Progress bar, 200px wide and 4px tall") },
     }},
     { _("Time / date"), {
         { "%k", _("12-hour clock") },
