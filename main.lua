@@ -258,10 +258,15 @@ function Bookends:runPresetManagerMigration()
         self.settings:saveSetting("preset_cycle", cycle)
     end
 
-    -- 3. First-run: provision Basic bookends if bookends_presets/ is empty.
-    -- Do NOT set it active for users upgrading from v3.x who already had a
-    -- customised layout in their settings — otherwise the init-time preset
-    -- re-apply would overwrite their layout with Basic bookends' content.
+    -- 3. First-run provisioning. Two distinct cases:
+    --    (a) Brand-new user — empty presets dir AND no existing layout →
+    --        provision Basic bookends and make it active.
+    --    (b) v3.x upgrader — empty presets dir BUT has a customised layout
+    --        in settings → snapshot their layout as a preset called
+    --        "My setup" and make THAT active. This preserves the v4
+    --        "everything is a preset" invariant, so autosave / cycle /
+    --        Preset menu all have something real to hook into.
+    -- In both cases Basic bookends lands in the library as a reference.
     self:ensurePresetDir()
     local dir = self:presetDir()
     local has_any = false
@@ -278,6 +283,8 @@ function Bookends:runPresetManagerMigration()
                 break
             end
         end
+
+        -- Always copy Basic bookends into the library as a reference.
         local DataStorage = require("datastorage")
         local source = DataStorage:getDataDir() .. "/plugins/bookends.koplugin/basic_bookends.lua"
         local dest = dir .. "/basic_bookends.lua"
@@ -287,22 +294,77 @@ function Bookends:runPresetManagerMigration()
             if dst_file then
                 dst_file:write(src_file:read("*a"))
                 dst_file:close()
-                -- Only make Basic bookends active for a genuine first-run.
-                -- Upgrading v3.x users keep their existing layout; Basic
-                -- bookends still lands in their library for reference.
-                if not has_existing_layout
-                   and not self.settings:readSetting("active_preset_filename") then
-                    self.settings:saveSetting("active_preset_filename", "basic_bookends.lua")
-                end
-                local cycle = self.settings:readSetting("preset_cycle") or {}
-                table.insert(cycle, "basic_bookends.lua")
-                self.settings:saveSetting("preset_cycle", cycle)
             end
             src_file:close()
         end
+
+        local cycle = self.settings:readSetting("preset_cycle") or {}
+        table.insert(cycle, "basic_bookends.lua")
+
+        if has_existing_layout then
+            -- Snapshot the user's v3.x layout as a preset and make it active.
+            local ok, data = pcall(self.buildPreset, self)
+            if ok and data then
+                data.name = _("My setup")
+                data.description = _("Imported from your earlier Bookends settings")
+                local ok_write, user_filename = pcall(self.writePresetFile, self, data.name, data)
+                if ok_write and user_filename then
+                    self.settings:saveSetting("active_preset_filename", user_filename)
+                    table.insert(cycle, user_filename)
+                end
+            end
+        elseif not self.settings:readSetting("active_preset_filename") then
+            -- Genuine first-run: Basic bookends becomes active.
+            self.settings:saveSetting("active_preset_filename", "basic_bookends.lua")
+        end
+
+        self.settings:saveSetting("preset_cycle", cycle)
     end
 
     self.settings:saveSetting("preset_manager_migration_done", true)
+
+    -- Recovery migration for users who went through v4.0.0–v4.0.2's
+    -- provisioning path and ended up in "detached state" — a customised
+    -- layout in settings but no active_preset_filename, because the
+    -- earlier migration either (a) wiped their layout onto Basic bookends
+    -- and they restored from backup without re-applying a preset, or
+    -- (b) v4.0.2 skipped setting active but didn't snapshot their layout.
+    -- Idempotent via its own flag; only runs once.
+    if not self.settings:isTrue("detached_state_recovery_done") then
+        if not self:getActivePresetFilename() then
+            local has_layout = false
+            for _, pos in ipairs(self.POSITIONS) do
+                local saved = self.settings:readSetting("pos_" .. pos.key)
+                if saved and saved.lines and #saved.lines > 0 then
+                    has_layout = true
+                    break
+                end
+            end
+            if has_layout then
+                local ok, data = pcall(self.buildPreset, self)
+                if ok and data then
+                    data.name = _("My setup")
+                    data.description = _("Imported from your earlier Bookends settings")
+                    local ok_write, fn = pcall(self.writePresetFile, self, data.name, data)
+                    if ok_write and fn then
+                        self.settings:saveSetting("active_preset_filename", fn)
+                        local cycle = self.settings:readSetting("preset_cycle") or {}
+                        -- Only add if not already there
+                        local already_in = false
+                        for _, f in ipairs(cycle) do
+                            if f == fn then already_in = true; break end
+                        end
+                        if not already_in then
+                            table.insert(cycle, fn)
+                            self.settings:saveSetting("preset_cycle", cycle)
+                        end
+                    end
+                end
+            end
+        end
+        self.settings:saveSetting("detached_state_recovery_done", true)
+    end
+
     self.settings:flush()
 end
 
