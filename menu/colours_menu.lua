@@ -175,7 +175,7 @@ function Bookends:buildBarColorsMenu()
     local bc = self.settings:readSetting("bar_colors") or {}
 
     local function saveColors()
-        if not bc.fill and not bc.bg and not bc.track and not bc.tick and bc.invert_read_ticks == nil and not bc.tick_height_pct and not bc.border and not bc.invert and not bc.border_thickness then
+        if not bc.fill and not bc.bg and not bc.track and not bc.tick and bc.invert_read_ticks == nil and not bc.tick_height_pct and not bc.border and not bc.invert and not bc.border_thickness and not bc.metro_fill then
             self.settings:delSetting("bar_colors")
         else
             self.settings:saveSetting("bar_colors", bc)
