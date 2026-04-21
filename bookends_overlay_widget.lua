@@ -1013,9 +1013,9 @@ function OverlayWidget.paintProgressBar(bb, x, y, w, h, fraction, ticks, style, 
             end
         end
 
-        -- Start circle (empty ring, trunk colour)
+        -- Start circle (empty ring; read colour when set, else trunk colour)
         local start_cx = reverse and (line_ox + line_len - start_r) or (line_ox - start_r)
-        paintCircle(start_cx, oy, start_r, metro_track)
+        paintCircle(start_cx, oy, start_r, metro_fill or metro_track)
         local ring_border = line_thick
         local inner_r = start_r - ring_border
         if inner_r > 0 then
