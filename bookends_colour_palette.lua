@@ -40,10 +40,10 @@ local Screen            = Device.screen
 -- Luminance-separated rows so dark/light pairings survive the greyscale fallback.
 local PALETTE = {
     { "#000000", "#404040", "#808080", "#BFBFBF", "#FFFFFF" },
-    { "#8B1A1A", "#B8570F", "#6B3E26", "#8B6914", "#5E2B1B" },
-    { "#E8A0B8", "#F4B58C", "#D4A574", "#E8D990", "#E89B8C" },
-    { "#1B2A5E", "#2D4A2B", "#1F5E5E", "#4A2B5E", "#2B3A4A" },
-    { "#A0C4E8", "#A0D4B8", "#C4A0E8", "#B8D4E8", "#E8A0C4" },
+    { "#C00000", "#FF6600", "#8B4513", "#B8860B", "#8B0000" },
+    { "#FF69B4", "#FFA07A", "#DEB887", "#FFD700", "#FF8C69" },
+    { "#0000CD", "#228B22", "#008B8B", "#8B008B", "#2F4F4F" },
+    { "#87CEEB", "#98FB98", "#DDA0DD", "#B0E0E6", "#FFB6C1" },
 }
 
 local SWATCH_SIDE  = Screen:scaleBySize(60)
@@ -337,17 +337,17 @@ local function showColourPicker(bookends, title, current_hex, default_hex, on_ap
         selected_hex     = current_hex,
         apply_callback   = on_apply,
         default_callback = function()
-            UIManager:close(widget)
+            UIManager:close(widget, "ui")
             if on_default then on_default() end
             finish()
         end,
         revert_callback  = function()
-            UIManager:close(widget)
+            UIManager:close(widget, "ui")
             if on_revert then on_revert() end
             finish()
         end,
         ok_callback      = function()
-            UIManager:close(widget)
+            UIManager:close(widget, "ui")
             finish()
         end,
     }
