@@ -45,6 +45,24 @@ local DEFAULT_HEX = {
 
 function Colour.defaultHexFor(field) return DEFAULT_HEX[field] end
 
+-- Return a normalised storage-shape table for a hex value: {grey=N} when
+-- the hex collapses to a neutral (r==g==b), otherwise {hex="#RRGGBB"}.
+-- Returns nil if the hex is malformed. Keeps presets clean on cross-device
+-- transfer: a user on a colour device picking #404040 from the palette
+-- stores it as {grey=0x40}, so the preset isn't flagged as "uses colour"
+-- by hasColour — same visual result on every device.
+function Colour.toStorageShape(hex)
+    local norm = Colour.normaliseHex(hex)
+    if not norm then return nil end
+    local r = tonumber(norm:sub(2, 3), 16)
+    local g = tonumber(norm:sub(4, 5), 16)
+    local b = tonumber(norm:sub(6, 7), 16)
+    if r == g and g == b then
+        return { grey = r }
+    end
+    return { hex = norm }
+end
+
 -- Accepts "#RGB", "#RRGGBB", or the same forms without the leading #.
 -- Returns the canonical "#RRGGBB" upper-cased form, or nil if malformed.
 -- CSS-short form expands per the usual rule: "#F0A" → "#FF00AA".

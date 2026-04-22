@@ -33,7 +33,7 @@ function Bookends:_buildColorItems(bc, saveColors, is_per_bar)
             local default_hex = Colour.defaultHexFor(field)
             self:showColourPicker(title, current_hex, default_hex,
                 function(new_hex)
-                    bc[field] = { hex = new_hex }
+                    bc[field] = Colour.toStorageShape(new_hex)
                     saveColors()
                 end,
                 function()
@@ -329,7 +329,7 @@ function Bookends:buildTextColourMenu()
             end
             self:showColourPicker(title, current_hex, Colour.defaultHexFor(field),
                 function(new_hex)
-                    self.settings:saveSetting(field, { hex = new_hex })
+                    self.settings:saveSetting(field, Colour.toStorageShape(new_hex))
                     self:markDirty()
                 end,
                 function()

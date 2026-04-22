@@ -63,15 +63,24 @@ end
 PresetManager.serializeTable = serializeTable
 
 --- Detect whether a preset payload uses any colour (hex) values.
---- Walks the table recursively; returns true on the first `hex` key hit.
---- Permissive: any non-empty `hex` string field flags the preset as
---- colour-authored (gallery UI treats false positives as benign — an
---- unused `hex` key is still authoring intent).
+--- Walks the table recursively; returns true on the first:
+---   (a) `{hex = "#..."}` field — colour stored as a setting;
+---   (b) inline `[c=#RGB]` or `[c=#RRGGBB]` tag inside a string value —
+---       colour authored inside a line's text (e.g. format strings in
+---       `positions.<pos>.lines`).
+--- Greyscale-only authoring (`{grey = N}` fields, `[c=N]` percent tags)
+--- does NOT flag the preset, so a preset that uses only neutrals stays
+--- portable to greyscale devices without a "uses colour" annotation.
 local function hasColour(t)
-    if type(t) ~= "table" then return false end
+    local tt = type(t)
+    if tt == "string" then
+        return t:find("%[c=#%x%x%x%x%x%x%]") ~= nil
+            or t:find("%[c=#%x%x%x%]") ~= nil
+    end
+    if tt ~= "table" then return false end
     if type(t.hex) == "string" and t.hex ~= "" then return true end
     for _k, v in pairs(t) do
-        if type(v) == "table" and hasColour(v) then return true end
+        if hasColour(v) then return true end
     end
     return false
 end
