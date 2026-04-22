@@ -20,6 +20,7 @@ local InputDialog = require("ui/widget/inputdialog")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local LineWidget = require("ui/widget/linewidget")
 local Notification = require("ui/widget/notification")
+local PresetManager = require("preset_manager")
 local Size = require("ui/size")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
@@ -487,11 +488,13 @@ function PresetManagerModal._renderLocalRows(self, vg, width, row_height, font_s
     local end_idx = math.min(start_idx + ROWS_PER_PAGE - 1, #presets)
     for i = start_idx, end_idx do
         local p = presets[i]
+        local has_colour = PresetManager.hasColour(p.preset) or false
         PresetManagerModal._addRow(self, vg, width, row_height, font_size, baseline, left_pad, {
             display = p.name,
             description = p.preset.description,
             author = p.preset.author,
             star_key = p.filename,
+            has_colour = has_colour,
             on_preview = function() self.previewLocal(p) end,
             on_hold = function() PresetManagerModal._openOverflow(self, p) end,
             is_selected = (selected_key == p.filename),
@@ -603,6 +606,19 @@ function PresetManagerModal._addRow(self, vg, width, row_height, font_size, base
             forced_baseline = title_bl,
             max_width = content_w - title_widget:getWidth(),
             fgcolor = secondary_fg,
+        })
+    end
+
+    if opts.has_colour then
+        table.insert(title_line, HorizontalSpan:new{ width = Screen:scaleBySize(6) })
+        table.insert(title_line, TextWidget:new{
+            -- Colour-palette emoji; some fonts render it monochrome — the semantic
+            -- (preset uses colour) still carries either way.
+            text = "🎨",
+            face = Font:getFace("cfont", 14),
+            forced_height = title_h,
+            forced_baseline = title_bl,
+            fgcolor = Blitbuffer.COLOR_BLACK,
         })
     end
 
@@ -1296,6 +1312,7 @@ function PresetManagerModal._renderGalleryRows(self, vg, width, row_height, font
             display = entry.name,
             description = entry.description,
             author = entry.author,
+            has_colour = entry.has_colour or false,
             on_preview = function() PresetManagerModal._previewGallery(self, captured) end,
             is_selected = is_selected,
             installed = local_names[entry.name] == true,
