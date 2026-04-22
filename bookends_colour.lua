@@ -57,8 +57,12 @@ function Colour.parseColorValue(v, is_color_enabled)
     end
     _last_color_mode = is_color_enabled
 
-    if v == nil then return nil end
-    if v == false then return false end
+    -- Avoid `v == nil` / `v == false` — under LuaJIT, an ffi.metatype with
+    -- an __eq metamethod (Blitbuffer.ColorRGB32 et al.) routes those through
+    -- __eq and crashes trying to index the nil operand. Check type first.
+    local t = type(v)
+    if t == "nil" then return nil end
+    if t == "boolean" then return false end
 
     if type(v) == "table" and v.hex then
         local key = v.hex .. (is_color_enabled and ":c" or ":g")

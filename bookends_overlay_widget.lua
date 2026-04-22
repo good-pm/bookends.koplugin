@@ -10,9 +10,13 @@ local Screen = Device.screen
 local ColorRGB32_t = ffi.typeof("ColorRGB32")
 
 -- Helper: resolve a text/symbol colour table ({grey=N} or {hex=H}) to a
--- Blitbuffer colour object on the current screen. Returns nil when v is nil.
+-- Blitbuffer colour object on the current screen. Returns nil when v is
+-- nil/false. Uses `not v` rather than `v == nil` because under LuaJIT an
+-- ffi.metatype equality check routes through __eq, and Blitbuffer's __eq
+-- indexes the other operand unconditionally — so `bb_color == nil` would
+-- crash. `not v` never calls __eq.
 local function resolveTextColor(v)
-    if v == nil then return nil end
+    if not v then return nil end
     return Colour.parseColorValue(v, Screen:isColorEnabled())
 end
 
@@ -409,7 +413,7 @@ function OverlayWidget.buildTextWidget(text, line_configs, h_anchor, max_width, 
         -- Try styled segments (BBCode tags or bar placeholder)
         local segments, has_tags = OverlayWidget.parseStyledSegments(
             lines[1], cfg.bold, cfg.italic or false, cfg.uppercase,
-            resolveTextColor(cfg.symbol_color))
+            cfg.symbol_color)
         if segments then
             return OverlayWidget.buildStyledLine(segments, cfg, available_w or Screen:getWidth(), max_width)
         end
@@ -447,7 +451,7 @@ function OverlayWidget.buildTextWidget(text, line_configs, h_anchor, max_width, 
         -- Try styled segments (BBCode tags or bar placeholder)
         local segments, has_tags = OverlayWidget.parseStyledSegments(
             line, cfg.bold, cfg.italic or false, cfg.uppercase,
-            resolveTextColor(cfg.symbol_color))
+            cfg.symbol_color)
         if segments then
             widget, w, h = OverlayWidget.buildStyledLine(segments, cfg, available_w or Screen:getWidth(), max_width)
         elseif cfg.bar then
