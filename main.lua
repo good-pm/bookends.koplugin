@@ -970,30 +970,22 @@ function Bookends:paintTo(bb, x, y)
     end
 end
 
---- Convert a settings-stored color value (number grey, {grey=N}, or nil) to a
---- Blitbuffer Color8 or false (fully transparent). Returns nil if not set.
+--- Convert a settings-stored color value (number, {grey=N}, {hex="#RRGGBB"},
+--- false, or nil) to a Blitbuffer colour object (or false for transparent).
+--- Delegates per-value parsing + memoisation to bookends_colour so hex → RGB
+--- and greyscale-fallback are consistent with text_color / symbol_color.
 local function resolveBarColors(bc)
-    local Blitbuffer = require("ffi/blitbuffer")
-    local function colorOrTransparent(v)
-        if not v then return nil end
-        if type(v) == "table" then
-            if v.grey then
-                if v.grey >= 0xFF then return false end
-                return Blitbuffer.Color8(v.grey)
-            end
-            return nil
-        end
-        if v >= 0xFF then return false end
-        return Blitbuffer.Color8(v)
-    end
+    local Colour = require("bookends_colour")
+    local is_color_enabled = Device:screen():isColorEnabled()
+    local function cv(v) return Colour.parseColorValue(v, is_color_enabled) end
     return {
-        fill = colorOrTransparent(bc.fill),
-        bg = colorOrTransparent(bc.bg),
-        track = colorOrTransparent(bc.track),
-        tick = colorOrTransparent(bc.tick),
-        border = colorOrTransparent(bc.border),
-        invert = colorOrTransparent(bc.invert),
-        metro_fill = colorOrTransparent(bc.metro_fill),
+        fill = cv(bc.fill),
+        bg = cv(bc.bg),
+        track = cv(bc.track),
+        tick = cv(bc.tick),
+        border = cv(bc.border),
+        invert = cv(bc.invert),
+        metro_fill = cv(bc.metro_fill),
         invert_read_ticks = bc.invert_read_ticks,
         tick_height_pct = bc.tick_height_pct,
         border_thickness = bc.border_thickness,
