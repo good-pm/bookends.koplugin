@@ -407,11 +407,12 @@ function Bookends:buildTextColourMenu()
         },
         {
             text_func = function()
-                return _("Symbol color") .. ": " .. symbolPctLabel()
+                return _("Icon color") .. ": " .. symbolPctLabel()
             end,
+            help_text = _("Applies to Nerd Font and FontAwesome icon glyphs (the Private Use Area range, e.g. %W, %B, %k). Unicode symbols in the regular text ranges (like the hourglass \"⌛\") follow the text color instead.\n\nAn inline [c=#RRGGBB]…[/c] tag in a line overrides the icon colour for any glyphs inside it."),
             keep_menu_open = true,
             callback = function(touchmenu_instance)
-                textColorNudge("symbol_color", _("Symbol color"), _("text"), touchmenu_instance)
+                textColorNudge("symbol_color", _("Icon color"), _("text"), touchmenu_instance)
             end,
             hold_callback = function(touchmenu_instance)
                 self.settings:delSetting("symbol_color")
